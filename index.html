@@ -1,42 +1,247 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Meine Website</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Future Hub | Next-Gen Interface</title>
+    <style>
+        /* GLOABLE STYLES */
+        :root {
+            --bg-color: #0a0a12;
+            --panel-bg: #121225;
+            --accent-neon: #00f0ff;
+            --accent-pink: #ff007f;
+            --text-color: #e0e0ff;
+        }
 
-  <style>
-    body {
-      margin: 0;
-      background: #111;
-      color: white;
-      font-family: Arial;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-    }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
 
-    .container {
-      text-align: center;
-    }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
 
-    h1 {
-      font-size: 60px;
-    }
+        /* NAVIGATION */
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 5%;
+            background: rgba(10, 10, 18, 0.8);
+            backdrop-filter: blur(10px);
+            position: fixed;
+            width: 100%;
+            top: 0;
+            z-index: 1000;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.2);
+        }
 
-    p {
-      color: #aaa;
-      font-size: 22px;
-    }
-  </style>
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--accent-neon);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px var(--accent-neon);
+        }
+
+        .nav-links {
+            display: flex;
+            list-style: none;
+        }
+
+        .nav-links li {
+            margin-left: 30px;
+        }
+
+        .nav-links a {
+            color: var(--text-color);
+            text-decoration: none;
+            font-weight: 500;
+            transition: 0.3s;
+            text-transform: uppercase;
+            font-size: 14px;
+        }
+
+        .nav-links a:hover {
+            color: var(--accent-neon);
+            text-shadow: 0 0 8px var(--accent-neon);
+        }
+
+        /* HERO SECTION */
+        .hero {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 0 20px;
+            background: radial-gradient(circle at center, #1a1a3a 0%, var(--bg-color) 70%);
+            position: relative;
+        }
+
+        .hero h1 {
+            font-size: 4rem;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            margin-bottom: 20px;
+            background: linear-gradient(45deg, var(--accent-neon), var(--accent-pink));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: pulse 3s infinite alternate;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            max-width: 600px;
+            margin-bottom: 40px;
+            color: #aaaacf;
+        }
+
+        /* BUTTONS */
+        .btn {
+            position: relative;
+            padding: 12px 35px;
+            background: transparent;
+            color: var(--accent-neon);
+            font-size: 16px;
+            font-weight: bold;
+            text-transform: uppercase;
+            border: 2px solid var(--accent-neon);
+            cursor: pointer;
+            border-radius: 4px;
+            overflow: hidden;
+            transition: 0.4s;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+        }
+
+        .btn:hover {
+            background: var(--accent-neon);
+            color: var(--bg-color);
+            box-shadow: 0 0 30px var(--accent-neon);
+            transform: translateY(-2px);
+        }
+
+        /* CONTENT SECTION */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 100px 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 50px;
+        }
+
+        .card {
+            background: var(--panel-bg);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 40px 30px;
+            border-radius: 8px;
+            transition: 0.3s;
+            position: relative;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            background: linear-gradient(45deg, var(--accent-neon), var(--accent-pink)) border-box;
+            -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: destination-out;
+            mask-composite: exclude;
+            opacity: 0;
+            transition: 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 30px rgba(0, 240, 255, 0.1);
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card h3 {
+            color: var(--accent-neon);
+            font-size: 22px;
+            margin-bottom: 15px;
+        }
+
+        /* INTERACTIVE EXPERIMENT SECTION */
+        .interactive-zone {
+            background: #0f0f22;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            border: 1px dashed var(--accent-pink);
+            margin-top: 50px;
+        }
+
+        .status-display {
+            font-family: monospace;
+            font-size: 1.5rem;
+            margin: 20px 0;
+            color: var(--accent-pink);
+            text-shadow: 0 0 10px var(--accent-pink);
+        }
+
+        /* ANIMATIONS */
+        @keyframes pulse {
+            0% { filter: drop-shadow(0 0 2px var(--accent-neon)); }
+            100% { filter: drop-shadow(0 0 15px var(--accent-neon)); }
+        }
+
+        /* RESPONSIVE DESIGN */
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.5rem; }
+            .nav-links { display: none; } /* Vereinfacht für Core-Code */
+        }
+    </style>
 </head>
 <body>
 
-<div class="container">
-  <h1>Willkommen 👋</h1>
-  <p>Meine GitHub Website läuft!</p>
-</div>
+    <nav>
+        <div class="logo">Core.OS</div>
+        <ul class="nav-links">
+            <li><a href="#home">Home</a></li>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#terminal">Terminal</a></li>
+        </ul>
+    </nav>
 
-</body>
-</html>
+    <section class="hero" id="home">
+        <h1>Welcome to the Future</h1>
+        <p>Ein interaktives, hochperformantes Interface-Design, entwickelt für maximale visuelle Dynamik.</p>
+        <button class="btn" onclick="triggerAlert()">System Booten</button>
+    </section>
+
+    <div class="container" id="features">
+        <h2 style="text-align: center; font-size: 32px; text-transform: uppercase; letter-spacing: 2px;">System-Spezifikationen</h2>
+        
+        <div class="grid">
+            <div class="card">
+                <h3>01 // Ultra Fast</h3>
+                <p>Optimierter Code ohne unnötigen Ballast. Geladen in Lichtgeschwindigkeit für die beste User Experience.</p>
+            </div>
+            
+            <div class="card">
+                <h3>02 // Cyber Glow</h3>
+                <p>
