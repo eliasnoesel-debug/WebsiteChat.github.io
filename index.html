@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Brawl VIP Chat PRO</title>
+    <title>Brawl VIP Chat OMEGA</title>
     
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
@@ -17,6 +17,7 @@
             --text-muted: #94a3b8;
             --accent: #38bdf8;
             --danger: #ef4444;
+            --warning: #f59e0b;
             --success: #10b981;
         }
 
@@ -31,12 +32,13 @@
             background-image: 
                 radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.15) 0px, transparent 50%),
                 radial-gradient(at 100% 100%, rgba(236, 72, 153, 0.15) 0px, transparent 50%);
-            height: 100vh; display: flex; justify-content: center; align-items: center;
+            height: 100dvh; /* dvh ist besser für mobile Browser */
+            display: flex; justify-content: center; align-items: center;
             color: var(--text-main); overflow: hidden;
         }
 
         .app-container {
-            width: 100%; height: 100vh; max-width: 600px;
+            width: 100%; height: 100%; max-width: 600px;
             display: flex; flex-direction: column; position: relative;
             background: rgba(15, 23, 42, 0.6);
             backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
@@ -50,7 +52,7 @@
             }
         }
 
-        /* HEADER & ONLINE BADGE */
+        /* HEADER */
         .header {
             padding: calc(15px + env(safe-area-inset-top)) 20px 15px 20px;
             background: rgba(30, 41, 59, 0.8);
@@ -59,20 +61,20 @@
         }
 
         .avatar-group {
-            width: 45px; height: 45px; margin-right: 15px;
+            width: 45px; height: 45px; margin-right: 15px; flex-shrink: 0;
             background: linear-gradient(135deg, #ff007f, #7000ff);
             border-radius: 12px; display: flex; justify-content: center; align-items: center;
             font-weight: bold; font-size: 20px; box-shadow: 0 4px 15px rgba(255, 0, 127, 0.3);
         }
 
-        .header-info { flex: 1; }
-        .header-info h2 { font-size: 1.1rem; font-weight: 600; }
+        .header-info { flex: 1; min-width: 0; }
+        .header-info h2 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         
         .status-row { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
-        
         .status { font-size: 0.8rem; display: flex; align-items: center; gap: 5px; }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: var(--danger); box-shadow: 0 0 8px var(--danger); }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: var(--danger); box-shadow: 0 0 8px var(--danger); transition: 0.3s; }
         .status.online .status-dot { background-color: var(--success); box-shadow: 0 0 8px var(--success); }
+        .status.connecting .status-dot { background-color: var(--warning); box-shadow: 0 0 8px var(--warning); }
 
         .online-badge {
             background: rgba(16, 185, 129, 0.2); color: var(--success);
@@ -82,16 +84,16 @@
 
         /* CHAT AREA */
         .chat-area {
-            flex: 1; padding: 20px; overflow-y: auto;
+            flex: 1; padding: 20px; overflow-y: auto; overflow-x: hidden;
             display: flex; flex-direction: column; gap: 15px; scroll-behavior: smooth;
         }
         .chat-area::-webkit-scrollbar { width: 6px; }
         .chat-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
 
         .message-wrapper {
-            display: flex; flex-direction: column; max-width: 80%;
+            display: flex; flex-direction: column; max-width: 85%;
             animation: slideUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-            opacity: 0; transform: translateY(15px); transition: opacity 0.5s ease-out;
+            opacity: 0; transform: translateY(15px); transition: opacity 0.4s ease;
         }
         @keyframes slideUp { to { opacity: 1; transform: translateY(0); } }
 
@@ -102,36 +104,32 @@
         
         .message-bubble {
             padding: 12px 16px; border-radius: 20px; font-size: 0.95rem; line-height: 1.4;
-            word-break: break-word; position: relative; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            word-wrap: break-word; position: relative; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         .incoming .message-bubble { background: var(--msg-in); border-top-left-radius: 4px; }
         .outgoing .message-bubble { background: var(--msg-out); border-top-right-radius: 4px; color: white; }
         .time-stamp { font-size: 0.65rem; color: rgba(255,255,255,0.5); align-self: flex-end; margin-top: 4px; margin-right: 12px; }
 
-        .system-msg {
-            align-self: center; background: rgba(255,255,255,0.05); padding: 5px 12px;
-            border-radius: 12px; font-size: 0.75rem; color: var(--text-muted); margin: 5px 0;
-        }
-
         /* INPUT AREA */
         .input-area {
             padding: 15px 20px calc(15px + env(safe-area-inset-bottom)) 20px;
             background: rgba(30, 41, 59, 0.8); border-top: 1px solid rgba(255, 255, 255, 0.05);
-            display: flex; align-items: center; gap: 12px; z-index: 10;
+            display: flex; align-items: center; gap: 10px; z-index: 10;
         }
         .input-box {
             flex: 1; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1);
             padding: 14px 20px; border-radius: 24px; color: white; font-size: 1rem; outline: none;
+            width: 100%;
         }
         .input-box:focus { border-color: var(--accent); }
         .send-btn {
-            background: var(--msg-out); border: none; width: 48px; height: 48px;
+            background: var(--msg-out); border: none; width: 48px; height: 48px; flex-shrink: 0;
             border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer;
         }
         .send-btn svg { width: 20px; height: 20px; fill: white; margin-left: 3px; }
 
-        /* LOGIN OVERLAY */
-        .overlay { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; z-index: 100; transition: opacity 0.4s; }
+        /* OVERLAY */
+        .overlay { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; z-index: 100; transition: opacity 0.4s; }
         .login-card { background: var(--panel-bg); padding: 40px 30px; border-radius: 24px; text-align: center; width: 90%; max-width: 340px; border: 1px solid rgba(255,255,255,0.1); transition: transform 0.4s; }
         .login-card h2 { margin-bottom: 8px; font-size: 1.5rem; }
         .login-card p { color: var(--text-muted); margin-bottom: 25px; }
@@ -179,23 +177,25 @@
     </div>
 
     <script>
-        // --- Variablen ---
+        // --- Globale Zustände ---
         let username = "";
         let isConnected = false;
-        const chatBox = document.getElementById("chat-box");
-        const msgInput = document.getElementById("msg-input");
-        const onlineBadge = document.getElementById("online-badge");
-        const onlineCountEl = document.getElementById("online-count");
-        
-        const CHAT_TOPIC = "brawl_arena_vip_chat_2026_xyz_v2"; 
-        const ONE_HOUR = 60 * 60 * 1000; // 1 Stunde in Millisekunden
+        const CHAT_TOPIC = "brawl_arena_vip_chat_2026_omega_final"; 
+        const ONE_HOUR = 60 * 60 * 1000; 
 
-        // Datenstrukturen für unsere P2P Funktionen
+        // Die Türsteher-Datenstrukturen
         let onlineUsers = new Map(); 
         let chatHistory = []; 
-        let historySynced = false;
+        let processedMessageIds = new Set(); // Merkt sich JEDE ID, um Duplikate 100% zu verhindern
+        let isSyncing = false; // Verhindert Spam beim Synchronisieren
 
-        // XSS Schutz
+        // DOM Elemente
+        const chatBox = document.getElementById("chat-box");
+        const msgInput = document.getElementById("msg-input");
+        const statusDisplay = document.getElementById("status-display");
+        const statusText = document.getElementById("status-text");
+
+        // --- Hilfsfunktionen ---
         function sanitizeHTML(text) {
             const div = document.createElement('div');
             div.textContent = text;
@@ -206,75 +206,116 @@
             return date.getHours().toString().padStart(2, '0') + ':' + date.getMinutes().toString().padStart(2, '0');
         }
 
-        // --- MQTT Netzwerk ---
-        const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+        function updateStatus(status) {
+            statusDisplay.className = "status " + status;
+            if(status === 'online') {
+                statusText.innerText = "Verbunden";
+                statusText.style.color = "var(--success)";
+            } else if(status === 'connecting') {
+                statusText.innerText = "Verbinde...";
+                statusText.style.color = "var(--warning)";
+            } else {
+                statusText.innerText = "Offline";
+                statusText.style.color = "var(--danger)";
+            }
+        }
+
+        // --- MQTT Netzwerk (mit Reconnect-Optionen) ---
+        const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
+            keepalive: 30, // Kürzere Intervalle für schnellere Fehlererkennung
+            reconnectPeriod: 2000 // Versuche alle 2 Sekunden neu zu verbinden
+        });
 
         client.on('connect', () => {
             isConnected = true;
-            document.getElementById("status-display").classList.add("online");
-            document.getElementById("status-text").innerText = "Verbunden";
-            document.getElementById("status-text").style.color = "var(--success)";
+            updateStatus('online');
             client.subscribe(CHAT_TOPIC);
+            
+            // Wenn wir schon einen Namen haben (Re-Connect), frag direkt nach verpassten Nachrichten
+            if (username) {
+                sendPresence();
+                client.publish(CHAT_TOPIC, JSON.stringify({ type: 'request_history', sender: username }));
+            }
         });
+
+        client.on('reconnect', () => updateStatus('connecting'));
+        client.on('offline', () => { isConnected = false; updateStatus('offline'); });
+        client.on('error', () => { isConnected = false; updateStatus('offline'); });
 
         client.on('message', (topic, payload) => {
             try {
                 const data = JSON.parse(payload.toString());
                 
-                // PING: Jemand meldet sich als Online
+                // 1. PRESENCE (Pings)
                 if (data.type === 'presence') {
                     onlineUsers.set(data.sender, Date.now());
                     updateOnlineUI();
                 }
                 
-                // CHAT: Neue Nachricht kommt rein
+                // 2. CHAT NACHRICHTEN
                 else if (data.type === 'chat') {
-                    // In lokaler Historie speichern
+                    // Striktes Verbot für bereits bekannte IDs
+                    if (processedMessageIds.has(data.id)) return;
+                    processedMessageIds.add(data.id);
+                    
+                    data.localReceivedTime = Date.now();
                     chatHistory.push(data);
                     
-                    const isMe = data.sender === username;
-                    addMessageToUI(data.sender, data.text, data.displayTime, data.timestamp, isMe);
+                    addMessageToUI(data, data.sender === username, ONE_HOUR);
                 }
                 
-                // HISTORY REQUEST: Jemand Neues fragt nach alten Nachrichten
+                // 3. ANFRAGE NACH HISTORIE
                 else if (data.type === 'request_history' && data.sender !== username) {
-                    if (chatHistory.length > 0) {
-                        // Zufällige Verzögerung, damit nicht 10 Leute gleichzeitig antworten
+                    const now = Date.now();
+                    const syncHistory = chatHistory.map(msg => ({
+                        id: msg.id, sender: msg.sender, text: msg.text, 
+                        displayTime: msg.displayTime, age: now - msg.localReceivedTime
+                    })).filter(msg => msg.age < ONE_HOUR);
+
+                    if (syncHistory.length > 0) {
+                        // Zufällige Verzögerung verhindert, dass alle gleichzeitig senden
                         setTimeout(() => {
                             client.publish(CHAT_TOPIC, JSON.stringify({
                                 type: 'history_sync',
-                                target: data.sender, // Nur für den, der gefragt hat
-                                history: chatHistory
+                                target: data.sender,
+                                history: syncHistory
                             }));
-                        }, Math.random() * 800);
+                        }, Math.random() * 1500); 
                     }
                 }
                 
-                // HISTORY SYNC: Jemand schickt uns die alten Nachrichten
-                else if (data.type === 'history_sync' && data.target === username && !historySynced) {
-                    historySynced = true;
-                    // Alte Nachrichten übernehmen und filtern (nur was < 1h ist)
+                // 4. EMPFANG DER HISTORIE
+                else if (data.type === 'history_sync' && data.target === username && !isSyncing) {
+                    isSyncing = true; // Blockiere weitere Syncs für kurz Zeit
                     const now = Date.now();
-                    chatHistory = data.history.filter(msg => (now - msg.timestamp) < ONE_HOUR);
                     
-                    if(chatHistory.length > 0) {
-                        addSystemMessage(`${chatHistory.length} Nachrichten aus der letzten Stunde geladen.`);
-                        chatHistory.forEach(msg => {
-                            addMessageToUI(msg.sender, msg.text, msg.displayTime, msg.timestamp, msg.sender === username);
-                        });
-                    }
+                    data.history.forEach(msg => {
+                        // Nur verarbeiten, wenn wir die ID noch nie gesehen haben
+                        if (!processedMessageIds.has(msg.id)) {
+                            processedMessageIds.add(msg.id);
+                            
+                            const remainingTime = ONE_HOUR - msg.age;
+                            if (remainingTime > 0) {
+                                msg.localReceivedTime = now - msg.age;
+                                chatHistory.push(msg);
+                                addMessageToUI(msg, msg.sender === username, remainingTime);
+                            }
+                        }
+                    });
+
+                    // Nach 5 Sekunden wieder bereit für Syncs (falls wir später nochmal offline gehen)
+                    setTimeout(() => isSyncing = false, 5000);
                 }
 
-            } catch (e) { console.error("MQTT Parse Error:", e); }
+            } catch (e) { console.error("MQTT Error:", e); }
         });
 
-        // --- Logik & UI ---
+        // --- Logik & Interaktion ---
         function joinChat() {
             const inputVal = document.getElementById("username-input").value.trim();
             if (inputVal.length > 0) {
                 username = sanitizeHTML(inputVal);
                 
-                // Animation
                 document.getElementById("login-card").style.transform = "translateY(-50px)";
                 document.getElementById("login-overlay").style.opacity = "0";
                 setTimeout(() => {
@@ -282,9 +323,7 @@
                     msgInput.focus();
                 }, 400);
 
-                // Sag allen anderen "Ich bin da"
                 sendPresence();
-                // Frag in den Raum nach alten Nachrichten
                 client.publish(CHAT_TOPIC, JSON.stringify({ type: 'request_history', sender: username }));
             }
         }
@@ -296,47 +335,47 @@
             const now = new Date();
             const messagePayload = {
                 type: 'chat',
+                // Sehr sichere, einzigartige ID generieren
+                id: username + '_' + Date.now() + '_' + Math.floor(Math.random() * 1000000),
                 sender: username,
-                text: sanitizeHTML(rawText),
-                displayTime: formatTime(now),
-                timestamp: now.getTime()
+                text: rawText,
+                displayTime: formatTime(now)
             };
 
             client.publish(CHAT_TOPIC, JSON.stringify(messagePayload));
             msgInput.value = "";
-            msgInput.focus();
+            
+            // Fokus auf Mobile behalten
+            setTimeout(() => msgInput.focus(), 10);
         }
 
-        function addMessageToUI(sender, text, displayTime, timestamp, isMe) {
+        function addMessageToUI(msg, isMe, duration) {
             const wrapper = document.createElement("div");
             wrapper.className = `message-wrapper ${isMe ? 'outgoing' : 'incoming'}`;
-            wrapper.dataset.timestamp = timestamp; // Speichern für späteren Lösch-Check
+            wrapper.id = 'ui_' + msg.id;
             
             wrapper.innerHTML = `
-                <div class="sender-name">${sender}</div>
-                <div class="message-bubble">${text}</div>
-                <div class="time-stamp">${displayTime}</div>
+                <div class="sender-name">${sanitizeHTML(msg.sender)}</div>
+                <div class="message-bubble">${sanitizeHTML(msg.text)}</div>
+                <div class="time-stamp">${msg.displayTime}</div>
             `;
 
             chatBox.appendChild(wrapper);
-            scrollToBottom();
-        }
-
-        function addSystemMessage(text) {
-            const div = document.createElement("div");
-            div.className = "system-msg";
-            div.innerText = text;
-            chatBox.appendChild(div);
-            scrollToBottom();
-        }
-
-        function scrollToBottom() {
-            requestAnimationFrame(() => {
+            
+            // Fixierter Mobile-Scroll
+            setTimeout(() => {
                 chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' });
-            });
-        }
+            }, 50);
 
-        // --- Die P2P Hintergrund-Magie ---
+            // Löschen nach x Minuten
+            setTimeout(() => {
+                if(wrapper.parentNode) {
+                    wrapper.style.opacity = "0";
+                    setTimeout(() => wrapper.remove(), 400);
+                }
+                chatHistory = chatHistory.filter(m => m.id !== msg.id);
+            }, duration);
+        }
 
         function sendPresence() {
             if (isConnected && username) {
@@ -345,51 +384,43 @@
         }
 
         function updateOnlineUI() {
-            // Säubere die Liste: Wer länger als 15 Sekunden kein Lebenszeichen gesendet hat, fliegt raus
             const now = Date.now();
             let count = 0;
             
-            // Füge uns selbst immer dazu, falls wir eingeloggt sind
             if(username) onlineUsers.set(username, now);
 
             for (let [user, lastSeen] of onlineUsers.entries()) {
-                if (now - lastSeen > 15000) {
+                // Wer 20 Sekunden nicht gepingt hat, gilt als offline
+                if (now - lastSeen > 20000) {
                     onlineUsers.delete(user);
                 } else {
                     count++;
                 }
             }
 
-            // UI Update
             if (username) {
-                onlineBadge.style.display = "flex";
-                onlineCountEl.innerText = count;
+                document.getElementById("online-badge").style.display = "flex";
+                document.getElementById("online-count").innerText = count;
             }
         }
 
-        // Loop 1: Ping senden & Online-Liste aufräumen (Alle 5 Sekunden)
+        // --- Background & Tab-Visibility Fix ---
+        // Erkennt, wenn du am Handy Safari wieder öffnest
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible" && username) {
+                // Erzwinge neuen Ping und frag nach, was wir verpasst haben
+                sendPresence();
+                if(isConnected) {
+                    client.publish(CHAT_TOPIC, JSON.stringify({ type: 'request_history', sender: username }));
+                }
+            }
+        });
+
+        // Loops
         setInterval(() => {
             sendPresence();
             updateOnlineUI();
         }, 5000);
-
-        // Loop 2: 1-Stunde-Verfallsdatum prüfen (Alle 30 Sekunden)
-        setInterval(() => {
-            const now = Date.now();
-            
-            // 1. Bereinige die Array-Historie im Hintergrund
-            chatHistory = chatHistory.filter(msg => (now - msg.timestamp) < ONE_HOUR);
-            
-            // 2. Entferne optisch zu alte Nachrichten aus dem Chatfenster
-            document.querySelectorAll('.message-wrapper').forEach(el => {
-                const msgTime = parseInt(el.dataset.timestamp);
-                if (now - msgTime >= ONE_HOUR) {
-                    el.style.opacity = "0"; // Schön ausblenden
-                    setTimeout(() => el.remove(), 500); // Dann aus DOM löschen
-                }
-            });
-        }, 30000);
-
     </script>
 </body>
 </html>
