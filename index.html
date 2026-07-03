@@ -1,395 +1,735 @@
-Das Problem lag an zwei Dingen:
-
-1. **Das Spawning-Problem:** Der unsichtbare Canvas für die Flüssigkeitsberechnung (`#fluidProcessingCanvas`) lag über dem Haupt-Canvas und hat alle Mausklicks abgefangen. Dadurch hat die Engine deine Klicks nicht registriert.
-2. **Das Text/Layout-Problem:** Das starre CSS-Grid hat auf bestimmten Bildschirmgrößen (wie bei einem MacBook) die UI-Elemente zusammengestaucht, wodurch der Text überlappte oder in den Bildschirm ragte.
-
-Ich habe das Layout komplett auf ein **"Floating Window"-System** umgebaut. Die Menüs schweben nun wie in einer nativen macOS-App absolut positioniert am Rand. Außerdem fängt das UI jetzt Mausklicks intelligent ab (`event.target.closest`), sodass du überall im freien Raum klicken kannst, um Objekte zu platzieren. Die fehlerhaften Klick-Blockaden wurden entfernt.
-
-Hier ist der vollständig reparierte, sofort lauffähige Code:
-
-```html
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced 2D Physics Engine Sandbox</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Quantum Sandbox Engine Pro - Unminified Edition</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/poly-decomp@0.3.0/build/decomp.min.js"></script>
+
     <style>
+        /* ==========================================================================
+           1. CSS VARIABLES & THEMES
+           ========================================================================== */
         :root {
-            /* Apple Dark Theme Default */
+            /* Apple Minimalist / Dark Theme */
             --bg-main: #09090b;
+            --bg-grid: rgba(255, 255, 255, 0.015);
             --panel-bg: rgba(20, 20, 25, 0.65);
             --panel-border: rgba(255, 255, 255, 0.08);
             --text-main: #f4f4f5;
             --text-muted: #a1a1aa;
             --accent-color: #3b82f6;
-            --accent-glow: rgba(59, 130, 246, 0.25);
+            --accent-hover: #2563eb;
+            --accent-glow: rgba(59, 130, 246, 0.3);
             --danger-color: #ef4444;
-            --danger-glow: rgba(239, 68, 68, 0.2);
-            --card-bg: rgba(0, 0, 0, 0.3);
-            --font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            --danger-hover: #dc2626;
+            --danger-glow: rgba(239, 68, 68, 0.3);
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --card-bg: rgba(0, 0, 0, 0.4);
+            --glass-blur: blur(24px) saturate(180%);
+            --font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            --font-mono: "SF Mono", "Fira Code", "Menlo", monospace;
+            --transition-speed: 0.25s;
+            --z-canvas: 1;
+            --z-fluid: 2;
+            --z-grid: 3;
+            --z-ui: 10;
+            --z-admin: 100;
         }
 
         .theme-cyberpunk {
             --bg-main: #050510;
+            --bg-grid: rgba(0, 255, 204, 0.03);
             --panel-bg: rgba(10, 6, 22, 0.85);
-            --panel-border: rgba(255, 0, 128, 0.3);
+            --panel-border: rgba(255, 0, 128, 0.4);
             --text-main: #00ffcc;
             --text-muted: #94a3b8;
             --accent-color: #ff007f;
-            --card-bg: rgba(255, 0, 128, 0.05);
+            --accent-hover: #e60073;
+            --accent-glow: rgba(255, 0, 128, 0.5);
+            --card-bg: rgba(255, 0, 128, 0.08);
         }
 
-        .theme-mono {
+        .theme-matrix {
             --bg-main: #000000;
-            --panel-bg: rgba(15, 15, 15, 0.9);
-            --panel-border: rgba(255, 255, 255, 0.2);
-            --text-main: #ffffff;
-            --text-muted: #888888;
-            --accent-color: #ffffff;
-            --card-bg: rgba(255, 255, 255, 0.05);
+            --bg-grid: rgba(0, 255, 0, 0.05);
+            --panel-bg: rgba(0, 20, 0, 0.85);
+            --panel-border: rgba(0, 255, 0, 0.3);
+            --text-main: #00ff00;
+            --text-muted: #008800;
+            --accent-color: #00ff00;
+            --accent-hover: #00cc00;
+            --accent-glow: rgba(0, 255, 0, 0.4);
+            --card-bg: rgba(0, 255, 0, 0.05);
+            --font-stack: var(--font-mono);
         }
 
+        /* ==========================================================================
+           2. GLOBAL RESETS & BASE TYPOGRAPHY
+           ========================================================================== */
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
             user-select: none;
             -webkit-user-select: none;
+            -moz-user-select: none;
         }
 
         body, html {
-            width: 100%;
-            height: 100%;
+            width: 100vw;
+            height: 100vh;
             overflow: hidden;
             background-color: var(--bg-main);
             font-family: var(--font-stack);
             color: var(--text-main);
-            transition: background-color 0.4s ease;
+            transition: background-color 0.4s ease, color 0.4s ease;
+            -webkit-font-smoothing: antialiased;
         }
 
-        /* Canvas Setup - WICHTIG: pointer-events korrekt setzen */
+        /* ==========================================================================
+           3. CANVAS LAYERING SYSTEM
+           ========================================================================== */
+        /* Layer 1: Haupt-Physik Engine (Rendert Linien, Constraints) */
         #physicsCanvas {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 1;
-            /* Fängt alle Klicks ab */
-            pointer-events: auto; 
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: var(--z-canvas);
+            pointer-events: auto; /* Erfasst Mauseingaben für die Welt */
         }
 
+        /* Layer 2: Fluid Processing (Unsichtbar, nur für Metaball-Shader-Effekt) */
         #fluidProcessingCanvas {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: var(--z-fluid);
+            pointer-events: none; /* WICHTIG: Blockiert keine Klicks! */
+            filter: blur(12px) contrast(25); /* Metaball Effekt */
+            opacity: 0.9;
+        }
+
+        /* Layer 3: Main Render Overlay (Körper, Glow, Partikel) */
+        #mainRenderCanvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             z-index: 2;
-            /* BUGFIX: Darf Klicks nicht blockieren! */
-            pointer-events: none; 
+            pointer-events: none;
         }
 
         .grid-overlay {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             pointer-events: none;
-            z-index: 3;
+            z-index: var(--z-grid);
             background-image: 
-                linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
-            background-size: 50px 50px;
+                linear-gradient(var(--bg-grid) 1px, transparent 1px),
+                linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+            background-size: 60px 60px;
+            transition: background-image 0.4s ease;
         }
 
-        /* Floating UI System (ersetzt fehlerhaftes CSS Grid) */
-        .ui-element {
+        /* ==========================================================================
+           4. FLOATING UI SYSTEM (Ersatz für das starre Grid)
+           ========================================================================== */
+        .ui-panel {
             position: absolute;
-            z-index: 10;
-            pointer-events: auto; /* UI fängt Klicks für sich selbst ab */
+            z-index: var(--z-ui);
+            pointer-events: auto; /* Die UI fängt Klicks ab, damit sie nicht in die Welt gehen */
             background: var(--panel-bg);
             border: 1px solid var(--panel-border);
             border-radius: 16px;
-            backdrop-filter: blur(24px) saturate(180%);
-            -webkit-backdrop-filter: blur(24px) saturate(180%);
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-            padding: 16px;
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            padding: 20px;
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 20px;
+            transition: all var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* Top Bar */
+        /* Scrollbar Styling für UI Panels */
+        .ui-panel::-webkit-scrollbar { width: 6px; }
+        .ui-panel::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 4px; }
+        .ui-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+        .ui-panel::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
+        /* Positionierungen */
         .panel-top {
-            top: 20px;
-            left: 20px;
-            right: 20px;
-            height: 60px;
+            top: 24px; left: 24px; right: 24px;
+            height: 64px;
             flex-direction: row;
             justify-content: space-between;
             align-items: center;
             padding: 0 24px;
         }
 
-        /* Left Sidebar - Scrollbar falls zu wenig Platz */
         .panel-left {
-            top: 100px;
-            left: 20px;
-            bottom: 100px;
-            width: 280px;
+            top: 112px; left: 24px; bottom: 112px;
+            width: 320px;
             overflow-y: auto;
         }
 
-        /* Right Sidebar */
         .panel-right {
-            top: 100px;
-            right: 20px;
-            bottom: 100px;
-            width: 300px;
+            top: 112px; right: 24px; bottom: 112px;
+            width: 340px;
             overflow-y: auto;
         }
 
-        /* Bottom Control Dock */
         .panel-bottom {
-            bottom: 20px;
-            left: 50%;
+            bottom: 24px; left: 50%;
             transform: translateX(-50%);
             flex-direction: row;
             align-items: center;
             justify-content: center;
-            height: 64px;
-            padding: 0 24px;
+            height: 72px;
+            padding: 0 32px;
+            border-radius: 36px; /* Pill Shape */
         }
 
-        /* Scrollbar Styling */
-        .ui-element::-webkit-scrollbar { width: 4px; }
-        .ui-element::-webkit-scrollbar-track { background: transparent; }
-        .ui-element::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
+        /* ==========================================================================
+           5. UI COMPONENTS
+           ========================================================================== */
+        /* Brand & Typography */
+        .brand-wrapper { display: flex; align-items: center; gap: 14px; cursor: default; }
+        .brand-logo { width: 14px; height: 14px; background: var(--accent-color); border-radius: 50%; box-shadow: 0 0 16px var(--accent-glow); animation: pulseLogo 3s infinite alternate; }
+        @keyframes pulseLogo { from { box-shadow: 0 0 8px var(--accent-glow); } to { box-shadow: 0 0 24px var(--accent-glow), 0 0 40px var(--accent-glow); } }
+        .brand-title { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; text-transform: uppercase; }
 
-        .brand-section { display: flex; align-items: center; gap: 12px; }
-        .brand-logo { width: 12px; height: 12px; background: var(--accent-color); border-radius: 50%; box-shadow: 0 0 12px var(--accent-color); }
-        .brand-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
-
-        .section-title {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-muted);
-            font-weight: 700;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            padding-bottom: 6px;
-            margin-bottom: -4px;
-        }
-
-        .btn-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-        }
-
-        .action-button {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            color: var(--text-main);
-            padding: 10px;
+        .section-header {
             font-size: 12px;
-            font-weight: 500;
-            border-radius: 10px;
-            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            font-weight: 800;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding-bottom: 8px;
+            margin-bottom: -8px;
             display: flex;
             align-items: center;
             gap: 8px;
-            transition: all 0.2s;
+        }
+        .section-header svg { width: 14px; height: 14px; fill: currentColor; }
+
+        /* Buttons & Grids */
+        .btn-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .btn-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+
+        .action-btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+            padding: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 12px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
         }
 
-        .action-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
-        .action-button:hover { background: rgba(255, 255, 255, 0.08); transform: translateY(-1px); }
-        .action-button.active { background: var(--accent-color); color: #fff; border-color: transparent; box-shadow: 0 4px 12px var(--accent-glow); }
-        .action-button.danger { color: var(--danger-color); background: rgba(239, 68, 68, 0.05); border-color: rgba(239, 68, 68, 0.1); }
-        .action-button.danger:hover { background: var(--danger-color); color: #fff; box-shadow: 0 4px 12px var(--danger-glow); }
-
-        .control-group { display: flex; flex-direction: column; gap: 6px; }
-        .control-header { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); }
-        .control-value { font-family: monospace; color: var(--text-main); font-weight: 600; }
-
-        .custom-slider {
-            -webkit-appearance: none; width: 100%; height: 4px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; outline: none; margin: 8px 0;
+        .action-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.2s; }
+        .action-btn:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.15); }
+        .action-btn:hover svg { transform: scale(1.1); }
+        .action-btn:active { transform: scale(0.96); }
+        
+        .action-btn.active {
+            background: var(--accent-color);
+            color: #ffffff;
+            border-color: transparent;
+            box-shadow: 0 8px 20px var(--accent-glow);
         }
-        .custom-slider::-webkit-slider-thumb {
-            -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--text-main); cursor: pointer; transition: transform 0.1s;
-        }
-        .custom-slider::-webkit-slider-thumb:hover { transform: scale(1.3); }
+        
+        .action-btn.danger { color: var(--danger-color); background: rgba(239, 68, 68, 0.05); border-color: rgba(239, 68, 68, 0.1); }
+        .action-btn.danger:hover { background: var(--danger-color); color: #fff; box-shadow: 0 8px 20px var(--danger-glow); border-color: transparent; }
 
-        .stat-card {
-            background: var(--card-bg); border-radius: 10px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; font-size: 12px;
-        }
-        #telemetryCanvas { width: 100%; height: 60px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(255,255,255,0.03); }
+        .btn-row { display: flex; flex-direction: row; gap: 8px; width: 100%; }
+        .btn-row .action-btn { flex: 1; flex-direction: row; height: 44px; padding: 0 16px; justify-content: center; }
 
-        .custom-select {
-            background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); color: var(--text-main); padding: 6px 12px; font-size: 12px; border-radius: 8px; outline: none; cursor: pointer; width: 140px;
+        /* Controls & Inputs */
+        .control-block { display: flex; flex-direction: column; gap: 8px; }
+        .control-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); font-weight: 500; }
+        .control-val { font-family: var(--font-mono); color: var(--accent-color); font-weight: 700; font-size: 13px; }
+
+        .range-slider {
+            -webkit-appearance: none; width: 100%; height: 6px; background: rgba(255, 255, 255, 0.08); border-radius: 3px; outline: none; margin: 6px 0; transition: background 0.2s;
         }
-        .flex-between { display: flex; justify-content: space-between; align-items: center; width: 100%; }
-        .shortcut-badge { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 10px; }
+        .range-slider:hover { background: rgba(255, 255, 255, 0.12); }
+        .range-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--text-main); cursor: pointer; transition: transform 0.1s, box-shadow 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        }
+        .range-slider::-webkit-slider-thumb:hover { transform: scale(1.2); box-shadow: 0 0 12px var(--accent-glow); background: var(--accent-color); }
+
+        .dropdown-select {
+            background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-main); padding: 8px 16px; font-size: 13px; font-weight: 500; border-radius: 10px; outline: none; cursor: pointer; appearance: none; -webkit-appearance: none; transition: border-color 0.2s;
+        }
+        .dropdown-select:hover { border-color: rgba(255,255,255,0.25); }
+
+        /* Telemetry & Stats */
+        .telemetry-card {
+            background: var(--card-bg); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 6px; position: relative; overflow: hidden;
+        }
+        .telemetry-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; z-index: 2; position: relative; }
+        .telemetry-label { color: var(--text-muted); font-weight: 500; }
+        .telemetry-data { font-family: var(--font-mono); font-weight: 700; color: var(--text-main); }
+        .chart-canvas { width: 100%; height: 60px; margin-top: 8px; border-radius: 6px; background: rgba(0,0,0,0.2); }
+
+        /* Shortcuts */
+        .shortcut-list { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); }
+        .shortcut-item { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); }
+        .key-badge { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1); padding: 3px 8px; border-radius: 6px; font-family: var(--font-mono); color: var(--text-main); font-weight: 600; box-shadow: 0 2px 0 rgba(0,0,0,0.3); }
+
+        /* ==========================================================================
+           6. ADMIN PANEL (ZENTRIERT & ERWEITERT)
+           ========================================================================== */
+        #adminPanelOverlay {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+            z-index: var(--z-admin);
+            display: none; /* Initial versteckt */
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        #adminPanelOverlay.active { display: flex; opacity: 1; }
+
+        .admin-modal {
+            background: var(--panel-bg);
+            border: 1px solid var(--accent-color);
+            border-radius: 20px;
+            width: 800px;
+            max-width: 90vw;
+            height: 600px;
+            max-height: 90vh;
+            box-shadow: 0 0 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.1), 0 0 40px var(--accent-glow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transform: scale(0.95);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        #adminPanelOverlay.active .admin-modal { transform: scale(1); }
+
+        .admin-header {
+            padding: 20px 30px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0,0,0,0.3);
+        }
+
+        .admin-title { font-size: 18px; font-weight: 800; color: var(--accent-color); display: flex; align-items: center; gap: 10px; }
+        .admin-title svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; }
+        
+        .admin-close { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 8px; border-radius: 8px; transition: all 0.2s; }
+        .admin-close:hover { background: rgba(255,255,255,0.1); color: var(--text-main); }
+        .admin-close svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 2; }
+
+        .admin-body { display: flex; flex: 1; overflow: hidden; }
+
+        .admin-sidebar {
+            width: 200px;
+            background: rgba(0,0,0,0.2);
+            border-right: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            flex-direction: column;
+            padding: 16px 0;
+        }
+
+        .admin-tab {
+            padding: 14px 24px; color: var(--text-muted); font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: space-between; border-left: 3px solid transparent; transition: all 0.2s;
+        }
+        .admin-tab:hover { background: rgba(255,255,255,0.03); color: var(--text-main); }
+        .admin-tab.active { border-left-color: var(--accent-color); background: rgba(255,255,255,0.05); color: var(--text-main); }
+        .admin-tab-key { font-size: 10px; font-family: var(--font-mono); background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; }
+
+        .admin-content { flex: 1; padding: 30px; overflow-y: auto; display: none; }
+        .admin-content.active { display: block; animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .admin-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+        .admin-panel-section { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; }
+        .admin-panel-section h3 { font-size: 14px; color: var(--text-main); margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+
     </style>
 </head>
-<body class="theme-dark">
+<body>
 
     <canvas id="physicsCanvas"></canvas>
+    <canvas id="mainRenderCanvas"></canvas>
     <canvas id="fluidProcessingCanvas"></canvas>
     <div class="grid-overlay"></div>
 
-    <div class="ui-element panel-top">
-        <div class="brand-section">
+    <div class="ui-panel panel-top">
+        <div class="brand-wrapper">
             <div class="brand-logo"></div>
-            <div class="brand-title">Quantum Sandbox Engine</div>
+            <div class="brand-title">Quantum Sandbox Pro</div>
+            <span style="font-size: 10px; background: var(--accent-color); color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 8px;">v2.5 Unminified</span>
         </div>
-        <select class="custom-select" id="themeSelect">
-            <option value="dark">Apple Minimalist</option>
-            <option value="cyberpunk">Cyberpunk Neon</option>
-            <option value="mono">Monochrom</option>
-        </select>
-    </div>
-
-    <div class="ui-element panel-left">
-        <span class="section-title">Standard Geometrien</span>
-        <div class="btn-grid">
-            <button class="action-button active" data-tool="circle"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg> Kreis</button>
-            <button class="action-button" data-tool="rectangle"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg> Rechteck</button>
-            <button class="action-button" data-tool="triangle"><svg viewBox="0 0 24 24"><polygon points="12,3 2,21 22,21"/></svg> Dreieck</button>
-            <button class="action-button" data-tool="hexagon"><svg viewBox="0 0 24 24"><polygon points="12,2 22,7 22,17 12,22 2,17 2,7"/></svg> Hexagon</button>
-        </div>
-
-        <span class="section-title">Strukturen & Flüssigkeit</span>
-        <div class="btn-grid">
-            <button class="action-button" data-tool="softbody"><svg viewBox="0 0 24 24"><path d="M12,2 C6.5,2 2,6.5 2,12 C2,17.5 6.5,22 12,22 C17.5,22 22,17.5 22,12 C22,6.5 17.5,2 12,2 Z" stroke-dasharray="3,3"/></svg> Soft Body</button>
-            <button class="action-button" data-tool="rope"><svg viewBox="0 0 24 24"><path d="M4,4 C8,12 16,12 20,20"/></svg> Kette</button>
-            <button class="action-button" data-tool="cloth"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" stroke-dasharray="2,2"/></svg> Tuch</button>
-            <button class="action-button" data-tool="liquid"><svg viewBox="0 0 24 24"><path d="M12,2 C12,2 6,10 6,14 C6,17.3 8.7,20 12,20 C15.3,20 18,17.3 18,14 C18,10 12,2 12,2 Z"/></svg> Fluid</button>
-        </div>
-
-        <span class="section-title">Globale Aktionen</span>
-        <button class="action-button danger" id="clearWorldBtn" style="width: 100%; justify-content: center;">
-            Welt zurücksetzen
-        </button>
-
-        <div style="margin-top: auto; font-size: 11px; color: var(--text-muted); display: flex; flex-direction: column; gap: 6px;">
-            <div class="flex-between"><span>Objekt Löschen</span><span class="shortcut-badge">Backspace</span></div>
-            <div class="flex-between"><span>Verbindungen zerschneiden</span><span class="shortcut-badge">Shift + Ziehen</span></div>
+        <div style="display: flex; gap: 16px; align-items: center;">
+            <select class="dropdown-select" id="themeSelector">
+                <option value="dark">Apple Dark</option>
+                <option value="cyberpunk">Cyberpunk Neon</option>
+                <option value="matrix">Terminal Matrix</option>
+            </select>
+            <button class="action-btn" id="btn-openAdmin" style="flex-direction: row; padding: 8px 16px; height: auto; border-color: var(--accent-color); color: var(--accent-color);">
+                <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                Admin Panel
+            </button>
         </div>
     </div>
 
-    <div class="ui-element panel-right">
-        <span class="section-title">Physik-Engine</span>
-        <div class="control-group">
-            <div class="control-header"><span>Gravitation</span><span class="control-value" id="lbl-gravityY">1.0 G</span></div>
-            <input type="range" class="custom-slider" id="sld-gravityY" min="-2" max="3" step="0.1" value="1.0">
+    <div class="ui-panel panel-left">
+        
+        <div class="section-header">
+            <svg viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2z"/></svg>
+            Standard Geometrien
         </div>
-        <div class="control-group">
-            <div class="control-header"><span>Zeit-Skala</span><span class="control-value" id="lbl-timeScale">1.0x</span></div>
-            <input type="range" class="custom-slider" id="sld-timeScale" min="0.1" max="2" step="0.1" value="1.0">
+        <div class="btn-grid-3">
+            <button class="action-btn active" data-tool="circle">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
+                Kreis
+            </button>
+            <button class="action-btn" data-tool="rectangle">
+                <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                Quadrat
+            </button>
+            <button class="action-btn" data-tool="triangle">
+                <svg viewBox="0 0 24 24"><polygon points="12,3 3,20 21,20"/></svg>
+                Dreieck
+            </button>
+            <button class="action-btn" data-tool="hexagon">
+                <svg viewBox="0 0 24 24"><polygon points="12,2 21,7 21,17 12,22 3,17 3,7"/></svg>
+                Hexagon
+            </button>
+            <button class="action-btn" data-tool="star">
+                <svg viewBox="0 0 24 24"><polygon points="12,2 15,9 22,9 17,14 19,21 12,17 5,21 7,14 2,9 9,9"/></svg>
+                Stern
+            </button>
+            <button class="action-btn" data-tool="capsule">
+                <svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="6"/></svg>
+                Kapsel
+            </button>
         </div>
 
-        <span class="section-title">Materialien</span>
-        <div class="control-group">
-            <div class="control-header"><span>Elastizität (Bounciness)</span><span class="control-value" id="lbl-restitution">0.7</span></div>
-            <input type="range" class="custom-slider" id="sld-restitution" min="0" max="1" step="0.05" value="0.7">
+        <div class="section-header" style="margin-top: 8px;">
+            <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            Komplexe Systeme
         </div>
-        <div class="control-group">
-            <div class="control-header"><span>Reibung</span><span class="control-value" id="lbl-friction">0.1</span></div>
-            <input type="range" class="custom-slider" id="sld-friction" min="0" max="1" step="0.05" value="0.1">
+        <div class="btn-grid-2">
+            <button class="action-btn" data-tool="softbody">
+                <svg viewBox="0 0 24 24"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0-2a8 8 0 100-16 8 8 0 000 16z" stroke-dasharray="2,2"/></svg>
+                Softbody
+            </button>
+            <button class="action-btn" data-tool="cloth">
+                <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" stroke-dasharray="2,2"/><line x1="4" y1="12" x2="20" y2="12" stroke-dasharray="2,2"/><line x1="12" y1="4" x2="12" y2="20" stroke-dasharray="2,2"/></svg>
+                Stoff / Netz
+            </button>
+            <button class="action-btn" data-tool="rope">
+                <svg viewBox="0 0 24 24"><path d="M4 12q4 -8 8 0t8 0"/></svg>
+                Seil
+            </button>
+            <button class="action-btn" data-tool="fluid">
+                <svg viewBox="0 0 24 24"><path d="M12 21a9 9 0 009-9c0-5-9-10-9-10S3 7 3 12a9 9 0 009 9z"/></svg>
+                Flüssigkeit
+            </button>
+            <button class="action-btn" data-tool="ragdoll" style="grid-column: span 2; border-color: var(--accent-color);">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="14"/><line x1="12" y1="9" x2="7" y2="13"/><line x1="12" y1="9" x2="17" y2="13"/><line x1="12" y1="14" x2="9" y2="21"/><line x1="12" y1="14" x2="15" y2="21"/></svg>
+                Active Ragdoll Spawner
+            </button>
         </div>
 
-        <span class="section-title">Telemetrie & Leistung</span>
-        <div class="stat-card"><span>Aktive Objekte</span><span class="control-value" id="stat-bodiesCount">0</span></div>
-        <div class="stat-card"><span>Bildrate (FPS)</span><span class="control-value" id="stat-fps">60.0</span></div>
-        <canvas id="telemetryCanvas"></canvas>
+        <div class="shortcut-list">
+            <div class="shortcut-item"><span>Objekt platzieren</span><span class="key-badge">Linksklick</span></div>
+            <div class="shortcut-item"><span>Zerschneiden (Slicing)</span><span class="key-badge">Shift + Drag</span></div>
+            <div class="shortcut-item"><span>Löschen (Hover)</span><span class="key-badge">Backspace</span></div>
+        </div>
     </div>
 
-    <div class="ui-element panel-bottom">
-        <button class="action-button" id="btn-playPause" style="width: 100px; justify-content: center;">
-            <svg viewBox="0 0 24 24" id="icon-playPause"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-            <span id="txt-playPause">Pause</span>
-        </button>
-        <button class="action-button" id="btn-invertGravity">
-            <svg viewBox="0 0 24 24"><polyline points="17 11 12 6 7 11"/><polyline points="17 18 12 13 7 18"/></svg>
-            Invertieren
-        </button>
+    <div class="ui-panel panel-right">
+        
+        <div class="section-header">
+            <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            Umgebung / Physik
+        </div>
+        <div class="control-block">
+            <div class="control-label"><span>Gravitation Y</span><span class="control-val" id="val-gravY">1.00 G</span></div>
+            <input type="range" class="range-slider" id="sld-gravY" min="-2" max="3" step="0.05" value="1">
+        </div>
+        <div class="control-block">
+            <div class="control-label"><span>Gravitation X (Wind)</span><span class="control-val" id="val-gravX">0.00 G</span></div>
+            <input type="range" class="range-slider" id="sld-gravX" min="-2" max="2" step="0.05" value="0">
+        </div>
+        <div class="control-block">
+            <div class="control-label"><span>Zeitskalierung (Slow-Mo)</span><span class="control-val" id="val-time">1.00x</span></div>
+            <input type="range" class="range-slider" id="sld-time" min="0.1" max="3" step="0.1" value="1">
+        </div>
+
+        <div class="section-header" style="margin-top: 8px;">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 010 20"/></svg>
+            Materialeigenschaften
+        </div>
+        <div class="control-block">
+            <div class="control-label"><span>Bounciness (Restitution)</span><span class="control-val" id="val-restitution">0.70</span></div>
+            <input type="range" class="range-slider" id="sld-restitution" min="0" max="1.5" step="0.05" value="0.7">
+        </div>
+        <div class="control-block">
+            <div class="control-label"><span>Reibung (Friction)</span><span class="control-val" id="val-friction">0.10</span></div>
+            <input type="range" class="range-slider" id="sld-friction" min="0" max="1" step="0.05" value="0.1">
+        </div>
+
+        <div class="section-header" style="margin-top: 8px;">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Live Telemetrie
+        </div>
+        <div class="telemetry-card">
+            <div class="telemetry-row">
+                <span class="telemetry-label">Aktive Körper</span>
+                <span class="telemetry-data" id="stat-bodies">0</span>
+            </div>
+            <div class="telemetry-row">
+                <span class="telemetry-label">Constraints (Gelenke)</span>
+                <span class="telemetry-data" id="stat-constraints">0</span>
+            </div>
+            <div class="telemetry-row">
+                <span class="telemetry-label">Engine FPS</span>
+                <span class="telemetry-data" id="stat-fps" style="color: var(--success-color);">60.0</span>
+            </div>
+            <canvas id="fpsChart" class="chart-canvas"></canvas>
+        </div>
     </div>
+
+    <div class="ui-panel panel-bottom">
+        <div class="btn-row" style="width: 300px;">
+            <button class="action-btn" id="btn-togglePlay" style="background: var(--accent-color); color: white;">
+                <svg viewBox="0 0 24 24" id="icon-playState"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                <span id="text-playState">Pause</span>
+            </button>
+            <button class="action-btn danger" id="btn-clearWorld">
+                <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                Nuke World
+            </button>
+        </div>
+    </div>
+
+    <div id="adminPanelOverlay">
+        <div class="admin-modal">
+            <div class="admin-header">
+                <div class="admin-title">
+                    <svg viewBox="0 0 24 24"><path d="M12 15l-3-3m0 0l3-3m-3 3h8M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    System Control Center
+                </div>
+                <button class="admin-close" id="btn-closeAdmin">
+                    <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="admin-body">
+                <div class="admin-sidebar">
+                    <div class="admin-tab active" data-tab="tab-system">System <span class="admin-tab-key">A / D</span></div>
+                    <div class="admin-tab" data-tab="tab-debug">Debugging</div>
+                    <div class="admin-tab" data-tab="tab-stress">Stress Tests</div>
+                    <div class="admin-tab" data-tab="tab-visuals">Visuals</div>
+                </div>
+                <div class="admin-content active" id="tab-system">
+                    <h2 style="margin-bottom: 20px;">System Configuration</h2>
+                    <div class="admin-grid">
+                        <div class="admin-panel-section">
+                            <h3>Engine Settings</h3>
+                            <label style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                                Position Iterations
+                                <input type="number" id="adm-posIter" value="6" style="width: 60px; background: rgba(255,255,255,0.1); color: white; border: none; border-radius: 4px; text-align: center;">
+                            </label>
+                            <label style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                                Velocity Iterations
+                                <input type="number" id="adm-velIter" value="4" style="width: 60px; background: rgba(255,255,255,0.1); color: white; border: none; border-radius: 4px; text-align: center;">
+                            </label>
+                            <button class="action-btn" id="btn-applyEngine" style="width: 100%; margin-top: 10px;">Apply Settings</button>
+                        </div>
+                        <div class="admin-panel-section">
+                            <h3>World Bounds</h3>
+                            <button class="action-btn" id="btn-toggleBounds" style="width: 100%;">Toggle Wall Collision</button>
+                            <p style="font-size: 11px; color: var(--text-muted); margin-top: 10px;">Schaltet die unsichtbaren Wände am Rand des Bildschirms ein oder aus.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="admin-content" id="tab-debug">
+                    <h2 style="margin-bottom: 20px;">Render & Debugging</h2>
+                    <div class="admin-grid">
+                        <div class="admin-panel-section">
+                            <h3>Overlay Toggles</h3>
+                            <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer;">
+                                <input type="checkbox" id="chk-wireframe"> Wireframe Mode erzwingen
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer;">
+                                <input type="checkbox" id="chk-showIds" checked> Objekt-IDs & Vektoren rendern
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer;">
+                                <input type="checkbox" id="chk-fluidBlur" checked> Metaball Shader für Fluids
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="admin-content" id="tab-stress">
+                    <h2 style="margin-bottom: 20px;">Hardware Stress Tests</h2>
+                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Achtung: Diese Tests können den Browser zum Absturz bringen oder hohe CPU-Last erzeugen.</p>
+                    <div class="admin-grid">
+                        <div class="admin-panel-section">
+                            <h3>Mass Spawn</h3>
+                            <button class="action-btn danger" id="btn-stress100" style="width: 100%; margin-bottom: 10px;">Spawn 100 Kreise</button>
+                            <button class="action-btn danger" id="btn-stress500" style="width: 100%; margin-bottom: 10px;">Spawn 500 Kreise</button>
+                            <button class="action-btn danger" id="btn-stressFluid" style="width: 100%;">Spawn 1000 Fluid Partikel</button>
+                        </div>
+                        <div class="admin-panel-section">
+                            <h3>Complex Structures</h3>
+                            <button class="action-btn" id="btn-spawnCar" style="width: 100%; margin-bottom: 10px;">Fahrzeug Spawnen</button>
+                            <button class="action-btn" id="btn-spawnBridge" style="width: 100%;">Kettenbrücke bauen</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="admin-content" id="tab-visuals">
+                    <h2 style="margin-bottom: 20px;">Visual Effects</h2>
+                    <div class="admin-grid">
+                        <div class="admin-panel-section">
+                            <h3>Partikel & Glow</h3>
+                            <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer;">
+                                <input type="checkbox" id="chk-trails" checked> Motion Trails (Bewegungsunschärfe)
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer;">
+                                <input type="checkbox" id="chk-sparks" checked> Kollisions-Funken
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
 
     <script>
-        const { Engine, World, Bodies, Body, Composite, Constraint, Mouse, MouseConstraint, Vector, Events } = Matter;
+        // Alias Matter.js Module für leichteren Zugriff
+        const { Engine, World, Bodies, Body, Composite, Constraint, Mouse, MouseConstraint, Vector, Events, Vertices } = Matter;
 
+        // --- GLOBAL STATE ---
         const State = {
-            currentTool: 'circle',
+            tool: 'circle',
             isRunning: true,
             theme: 'dark',
-            mat: { restitution: 0.70, friction: 0.10 },
-            fps: { current: 60, lastTime: performance.now(), frames: 0, history: Array(60).fill(0) }
+            boundsEnabled: true,
+            mat: { restitution: 0.7, friction: 0.1, density: 0.001 },
+            gfx: { trails: true, sparks: true, wireframe: false, showIds: true, fluidBlur: true },
+            engineConfig: { posIter: 6, velIter: 4 },
+            telemetry: { fps: 60, lastTime: performance.now(), frames: 0, history: Array(60).fill(60) },
+            admin: { isOpen: false, activeTabIndex: 0 },
+            mousePos: { x: 0, y: 0 }
         };
 
+        // --- COLOR PALETTES ---
         const Colors = {
-            dark: { circle: '#3b82f6', rectangle: '#10b981', triangle: '#f59e0b', hexagon: '#8b5cf6', softbody: '#ec4899', rope: '#64748b', fluid: '#06b6d4', spark: '#fff' },
-            cyberpunk: { circle: '#ff007f', rectangle: '#00ffcc', triangle: '#ffff00', hexagon: '#9900ff', softbody: '#ff0055', rope: '#00ffaa', fluid: '#00ffff', spark: '#fff' },
-            mono: { circle: '#fff', rectangle: '#aaa', triangle: '#ddd', hexagon: '#555', softbody: '#888', rope: '#777', fluid: '#fff', spark: '#fff' }
+            dark: { 
+                circle: '#3b82f6', rect: '#10b981', poly: '#f59e0b', star: '#8b5cf6', capsule: '#ec4899',
+                softbody: '#f43f5e', cloth: '#64748b', rope: '#94a3b8', fluid: '#06b6d4', spark: '#ffffff',
+                constraint: 'rgba(255,255,255,0.2)', text: '#ffffff'
+            },
+            cyberpunk: { 
+                circle: '#ff007f', rect: '#00ffcc', poly: '#ffff00', star: '#9900ff', capsule: '#ff5500',
+                softbody: '#ff0055', cloth: '#00ffff', rope: '#00ffaa', fluid: '#00ffff', spark: '#ffffff',
+                constraint: 'rgba(255,0,128,0.5)', text: '#00ffcc'
+            },
+            matrix: { 
+                circle: '#00ff00', rect: '#00ff00', poly: '#00ff00', star: '#00ff00', capsule: '#00ff00',
+                softbody: '#008800', cloth: '#00cc00', rope: '#005500', fluid: '#00ff00', spark: '#00ff00',
+                constraint: 'rgba(0,255,0,0.4)', text: '#00ff00'
+            }
         };
 
-        const canvas = document.getElementById('physicsCanvas');
-        const ctx = canvas.getContext('2d');
-        const fluidCanvas = document.getElementById('fluidProcessingCanvas');
-        const fluidCtx = fluidCanvas.getContext('2d');
-        const telCanvas = document.getElementById('telemetryCanvas');
-        const telCtx = telCanvas.getContext('2d');
+        // --- CANVAS SETUP ---
+        const canvasPhys = document.getElementById('physicsCanvas');
+        const ctxPhys = canvasPhys.getContext('2d');
+        const canvasFluid = document.getElementById('fluidProcessingCanvas');
+        const ctxFluid = canvasFluid.getContext('2d');
+        const canvasRender = document.getElementById('mainRenderCanvas');
+        const ctxRender = canvasRender.getContext('2d');
+        const canvasFps = document.getElementById('fpsChart');
+        const ctxFps = canvasFps.getContext('2d');
 
-        let width = canvas.width = fluidCanvas.width = window.innerWidth;
-        let height = canvas.height = fluidCanvas.height = window.innerHeight;
+        let width = window.innerWidth;
+        let height = window.innerHeight;
 
+        function resizeCanvases() {
+            width = window.innerWidth; height = window.innerHeight;
+            canvasPhys.width = canvasFluid.width = canvasRender.width = width;
+            canvasPhys.height = canvasFluid.height = canvasRender.height = height;
+            canvasFps.width = canvasFps.clientWidth;
+            canvasFps.height = canvasFps.clientHeight;
+            createBoundaries();
+        }
+        window.addEventListener('resize', resizeCanvases);
+
+        // --- ENGINE SETUP ---
         const engine = Engine.create();
         engine.gravity.y = 1.0;
+        engine.gravity.x = 0.0;
+        engine.positionIterations = State.engineConfig.posIter;
+        engine.velocityIterations = State.engineConfig.velIter;
 
         let boundaries = [];
         let objectTrails = [];
         let sparks = [];
         let isSlicing = false;
         let sliceStart = null;
-
-        function init() {
-            createBoundaries();
-            setupMouseInteraction();
-            bindEvents();
-            setInterval(updateTelemetry, 1000);
-            requestAnimationFrame(renderLoop);
-        }
+        let mouseConstraint = null;
 
         function createBoundaries() {
             if (boundaries.length > 0) Composite.remove(engine.world, boundaries);
-            const thickness = 100;
+            if (!State.boundsEnabled) { boundaries = []; return; }
+            
+            const t = 200; // Dicke der Wände, damit bei hoher Speed nichts durchfällt
             boundaries = [
-                Bodies.rectangle(width/2, height + thickness/2, width*2, thickness, { isStatic: true, label: 'wall' }),
-                Bodies.rectangle(width/2, -thickness/2, width*2, thickness, { isStatic: true, label: 'wall' }),
-                Bodies.rectangle(-thickness/2, height/2, thickness, height*2, { isStatic: true, label: 'wall' }),
-                Bodies.rectangle(width + thickness/2, height/2, thickness, height*2, { isStatic: true, label: 'wall' })
+                Bodies.rectangle(width/2, height + t/2, width*3, t, { isStatic: true, label: 'wall', friction: 1 }),
+                Bodies.rectangle(width/2, -t/2, width*3, t, { isStatic: true, label: 'wall', friction: 0 }),
+                Bodies.rectangle(-t/2, height/2, t, height*3, { isStatic: true, label: 'wall', friction: 0 }),
+                Bodies.rectangle(width + t/2, height/2, t, height*3, { isStatic: true, label: 'wall', friction: 0 })
             ];
             Composite.add(engine.world, boundaries);
         }
 
-        let mouseConstraint;
-        function setupMouseInteraction() {
-            // Mouse auf das interaktive Canvas binden
-            const m = Mouse.create(canvas);
+        // --- MOUSE INTERACTION & SLICING ---
+        function setupInteraction() {
+            const mouse = Mouse.create(canvasPhys);
             mouseConstraint = MouseConstraint.create(engine, {
-                mouse: m,
+                mouse: mouse,
                 constraint: { stiffness: 0.2, render: { visible: false } }
             });
             Composite.add(engine.world, mouseConstraint);
 
-            // WICHTIG: Klick-Logik auf das Dokument legen, aber UI ausklammern
+            // Verhindert das Scrollen, wenn man auf dem Canvas zieht
+            mouse.element.removeEventListener("mousewheel", mouse.mousewheel);
+            mouse.element.removeEventListener("DOMMouseScroll", mouse.mousewheel);
+
+            // Globaler Klick-Handler für Spawning
             document.addEventListener('mousedown', (e) => {
-                // BUGFIX: Wenn der Klick auf einem UI-Element passierte -> ignorieren!
-                if (e.target.closest('.ui-element')) return;
+                State.mousePos.x = e.clientX; State.mousePos.y = e.clientY;
+                
+                // Blockiere Spawning, wenn in UI oder Admin Panel geklickt wird
+                if (e.target.closest('.ui-panel') || e.target.closest('.admin-modal') || State.admin.isOpen) return;
 
                 if (e.shiftKey) {
                     isSlicing = true;
@@ -397,280 +737,544 @@ Hier ist der vollständig reparierte, sofort lauffähige Code:
                     return;
                 }
 
-                // Wenn wir schon ein Objekt ziehen, nicht spawnen
+                // Nicht spawnen, wenn ein Objekt gezogen wird
                 if (mouseConstraint.body) return;
 
-                spawnEntity(e.clientX, e.clientY);
+                spawnTool(e.clientX, e.clientY);
             });
 
             document.addEventListener('mousemove', (e) => {
+                State.mousePos.x = e.clientX; State.mousePos.y = e.clientY;
                 if (isSlicing && e.shiftKey) sliceStart = { x: e.clientX, y: e.clientY };
             });
 
-            document.addEventListener('mouseup', () => { isSlicing = false; sliceStart = null; });
+            document.addEventListener('mouseup', () => {
+                isSlicing = false; sliceStart = null;
+            });
+
+            // Löschen mit Backspace/Delete (Hover-basiert)
+            window.addEventListener('keydown', (e) => {
+                // Admin Panel Steuerung mit A und D WENN ADMIN OFFEN IST
+                if (State.admin.isOpen) {
+                    const tabs = Array.from(document.querySelectorAll('.admin-tab'));
+                    if (e.key.toLowerCase() === 'a') {
+                        State.admin.activeTabIndex = (State.admin.activeTabIndex - 1 + tabs.length) % tabs.length;
+                        switchAdminTab(tabs[State.admin.activeTabIndex]);
+                    } else if (e.key.toLowerCase() === 'd') {
+                        State.admin.activeTabIndex = (State.admin.activeTabIndex + 1) % tabs.length;
+                        switchAdminTab(tabs[State.admin.activeTabIndex]);
+                    }
+                    return; // Blockiere andere Keys im Admin Modus
+                }
+
+                if (e.key === 'Backspace' || e.key === 'Delete') {
+                    // Finde Körper unter der Maus
+                    const bodies = Composite.allBodies(engine.world).filter(b => b.label !== 'wall');
+                    const underMouse = Matter.Query.point(bodies, State.mousePos);
+                    if (underMouse.length > 0) {
+                        Composite.remove(engine.world, underMouse[0]);
+                    }
+                }
+            });
         }
 
-        function spawnEntity(x, y) {
+        // --- OBJECT SPAWNING LOGIC ---
+        function spawnTool(x, y) {
             const pal = Colors[State.theme];
-            const opt = { restitution: State.mat.restitution, friction: State.mat.friction };
+            const opt = { 
+                restitution: State.mat.restitution, 
+                friction: State.mat.friction,
+                density: State.mat.density
+            };
 
-            if (State.currentTool === 'circle') {
-                const r = Math.random() * 15 + 15;
-                Composite.add(engine.world, Bodies.circle(x, y, r, { ...opt, render: { type: 'circle', color: pal.circle, r }}));
-            } 
-            else if (State.currentTool === 'rectangle') {
-                const w = Math.random() * 30 + 30;
-                const h = Math.random() * 30 + 30;
-                Composite.add(engine.world, Bodies.rectangle(x, y, w, h, { ...opt, render: { type: 'rect', color: pal.rectangle, w, h }}));
-            }
-            else if (State.currentTool === 'triangle') {
-                const r = Math.random() * 20 + 20;
-                Composite.add(engine.world, Bodies.polygon(x, y, 3, r, { ...opt, render: { type: 'poly', color: pal.triangle, r, sides: 3 }}));
-            }
-            else if (State.currentTool === 'hexagon') {
-                const r = Math.random() * 15 + 20;
-                Composite.add(engine.world, Bodies.polygon(x, y, 6, r, { ...opt, render: { type: 'poly', color: pal.hexagon, r, sides: 6 }}));
-            }
-            else if (State.currentTool === 'liquid') {
-                for (let i=0; i<16; i++) {
-                    const px = x + (i%4)*12 - 18;
-                    const py = y + Math.floor(i/4)*12 - 18;
-                    Composite.add(engine.world, Bodies.circle(px, py, 6, { restitution: 0.1, friction: 0, density: 0.05, render: { type: 'fluid', color: pal.fluid, r: 6 }}));
-                }
-            }
-            else if (State.currentTool === 'softbody') {
-                const bodies = [];
-                for(let i=0; i<4; i++){
-                    for(let j=0; j<4; j++){
-                        const b = Bodies.circle(x+j*20, y+i*20, 8, { restitution: 0.4, render: { type: 'circle', color: pal.softbody, r: 8 }});
-                        bodies.push(b);
-                        Composite.add(engine.world, b);
+            switch(State.tool) {
+                case 'circle':
+                    const r = 20 + Math.random() * 20;
+                    Composite.add(engine.world, Bodies.circle(x, y, r, { ...opt, render: { type: 'circle', color: pal.circle, r } }));
+                    break;
+                case 'rectangle':
+                    const w = 40 + Math.random() * 40;
+                    const h = 40 + Math.random() * 40;
+                    Composite.add(engine.world, Bodies.rectangle(x, y, w, h, { ...opt, render: { type: 'rect', color: pal.rect, w, h } }));
+                    break;
+                case 'triangle':
+                    const tr = 30 + Math.random() * 20;
+                    Composite.add(engine.world, Bodies.polygon(x, y, 3, tr, { ...opt, render: { type: 'poly', color: pal.poly, r: tr, sides: 3 } }));
+                    break;
+                case 'hexagon':
+                    const hr = 25 + Math.random() * 15;
+                    Composite.add(engine.world, Bodies.polygon(x, y, 6, hr, { ...opt, render: { type: 'poly', color: pal.poly, r: hr, sides: 6 } }));
+                    break;
+                case 'star':
+                    // Generiere komplexes konkaves Polygon für Stern (benötigt poly-decomp)
+                    const starVerts = [];
+                    const outR = 40, inR = 15;
+                    for(let i=0; i<10; i++){
+                        const rad = (Math.PI / 5) * i;
+                        const radius = i % 2 === 0 ? outR : inR;
+                        starVerts.push({ x: x + Math.cos(rad)*radius, y: y + Math.sin(rad)*radius });
                     }
-                }
-                for(let i=0; i<4; i++){
-                    for(let j=0; j<4; j++){
-                        const idx = i*4+j;
-                        if(j<3) Composite.add(engine.world, Constraint.create({ bodyA: bodies[idx], bodyB: bodies[idx+1], stiffness: 0.8, render:{visible:false} }));
-                        if(i<3) Composite.add(engine.world, Constraint.create({ bodyA: bodies[idx], bodyB: bodies[idx+4], stiffness: 0.8, render:{visible:false} }));
-                        if(i<3 && j<3) Composite.add(engine.world, Constraint.create({ bodyA: bodies[idx], bodyB: bodies[idx+5], stiffness: 0.6, render:{visible:false} }));
+                    const starBody = Bodies.fromVertices(x, y, [starVerts], { ...opt, render: { type: 'custom', color: pal.star, verts: starVerts } }, true);
+                    if(starBody) Composite.add(engine.world, starBody);
+                    break;
+                case 'capsule':
+                    const cw = 20, ch = 60;
+                    const cap = Bodies.rectangle(x, y, cw, ch, { ...opt, chamfer: { radius: cw/2 }, render: { type: 'rect', color: pal.capsule, w: cw, h: ch, chamfer: cw/2 } });
+                    Composite.add(engine.world, cap);
+                    break;
+                case 'fluid':
+                    // Spawnt eine Matrix an Fluid-Partikeln
+                    for (let i = 0; i < 25; i++) {
+                        const px = x + (i % 5) * 15 - 30;
+                        const py = y + Math.floor(i / 5) * 15 - 30;
+                        Composite.add(engine.world, Bodies.circle(px, py, 8, { 
+                            restitution: 0.1, friction: 0, density: 0.05, 
+                            render: { type: 'fluid', color: pal.fluid, r: 8 } 
+                        }));
                     }
-                }
-            }
-            else if (State.currentTool === 'rope') {
-                let prev = null;
-                for (let i = 0; i < 8; i++) {
-                    const b = Bodies.rectangle(x + i*25, y, 25, 10, { isStatic: i===0, collisionFilter: { group: Body.nextGroup(true) }, render: { type: 'rect', color: pal.rope, w: 25, h: 10 }});
-                    Composite.add(engine.world, b);
-                    if (prev) Composite.add(engine.world, Constraint.create({ bodyA: prev, pointA: {x:10, y:0}, bodyB: b, pointB: {x:-10, y:0}, stiffness: 0.9, render: {type: 'rope'} }));
-                    prev = b;
-                }
-            }
-            else if (State.currentTool === 'cloth') {
-                const matrix = [];
-                for(let r=0; r<5; r++){
-                    matrix[r] = [];
-                    for(let c=0; c<6; c++){
-                        const node = Bodies.circle(x+c*20, y+r*20, 4, { isStatic: r===0, collisionFilter: {group: Body.nextGroup(true)}, render: {type:'circle', color:pal.rope, r:4} });
-                        matrix[r][c] = node;
-                        Composite.add(engine.world, node);
-                    }
-                }
-                for(let r=0; r<5; r++){
-                    for(let c=0; c<6; c++){
-                        if(c<5) Composite.add(engine.world, Constraint.create({ bodyA: matrix[r][c], bodyB: matrix[r][c+1], stiffness: 0.8 }));
-                        if(r<4) Composite.add(engine.world, Constraint.create({ bodyA: matrix[r][c], bodyB: matrix[r+1][c], stiffness: 0.8 }));
-                    }
-                }
+                    break;
+                case 'softbody':
+                    generateSoftBody(x, y, 5, 5, 12, pal.softbody);
+                    break;
+                case 'cloth':
+                    generateCloth(x, y, 8, 6, 15, pal.cloth);
+                    break;
+                case 'rope':
+                    generateRope(x, y, 10, 20, pal.rope);
+                    break;
+                case 'ragdoll':
+                    generateRagdoll(x, y, 1.2, pal.text); // Ragdoll nutzt Akzent/Text Farbe
+                    break;
             }
         }
 
-        // Funken-Kollisionen
+        // --- COMPLEX GENERATORS ---
+        function generateSoftBody(x, y, cols, rows, radius, color) {
+            const particleOptions = { restitution: 0.5, friction: 0.1, render: { type: 'circle', color: color, r: radius } };
+            const constraintOptions = { stiffness: 0.9, render: { visible: false } };
+            
+            const sb = Matter.Composites.stack(x - (cols*radius), y - (rows*radius), cols, rows, 2, 2, function(x, y) {
+                return Bodies.circle(x, y, radius, particleOptions);
+            });
+            
+            Matter.Composites.mesh(sb, cols, rows, true, constraintOptions);
+            Composite.add(engine.world, sb);
+        }
+
+        function generateCloth(x, y, cols, rows, spacing, color) {
+            const particleOptions = { restitution: 0.1, friction: 0.8, collisionFilter: { group: Body.nextGroup(true) }, render: { type: 'circle', color: color, r: 4 } };
+            const cloth = Matter.Composites.stack(x, y, cols, rows, spacing, spacing, function(x, y) {
+                return Bodies.circle(x, y, 4, particleOptions);
+            });
+
+            // Erster Row Statisch machen
+            for(let i=0; i<cols; i++) Body.setStatic(cloth.bodies[i], true);
+
+            Matter.Composites.mesh(cloth, cols, rows, false, { stiffness: 0.8, damping: 0.05, render: { type: 'rope', color: color } });
+            Composite.add(engine.world, cloth);
+        }
+
+        function generateRope(x, y, segments, length, color) {
+            const group = Body.nextGroup(true);
+            const rope = Matter.Composites.stack(x, y, segments, 1, 5, 5, function(x, y) {
+                return Bodies.rectangle(x, y, length, 8, { collisionFilter: { group: group }, render: { type: 'rect', color: color, w: length, h: 8 } });
+            });
+            Body.setStatic(rope.bodies[0], true);
+            Matter.Composites.chain(rope, 0.4, 0, -0.4, 0, { stiffness: 0.9, length: 2, render: { visible: false } });
+            Composite.add(engine.world, rope);
+        }
+
+        function generateRagdoll(x, y, scale, color) {
+            const headOptions = { friction: 0.8, restitution: 0.3, render: { type: 'circle', color: color, r: 15*scale } };
+            const torsoOptions = { friction: 0.8, restitution: 0.3, render: { type: 'rect', color: color, w: 30*scale, h: 50*scale } };
+            const limbOptions = { friction: 0.8, restitution: 0.3, render: { type: 'rect', color: color, w: 10*scale, h: 40*scale } };
+            const group = Body.nextGroup(true);
+            
+            headOptions.collisionFilter = torsoOptions.collisionFilter = limbOptions.collisionFilter = { group: group };
+
+            const head = Bodies.circle(x, y - 60*scale, 15*scale, headOptions);
+            const torso = Bodies.rectangle(x, y, 30*scale, 50*scale, torsoOptions);
+            const armL = Bodies.rectangle(x - 25*scale, y - 10*scale, 10*scale, 40*scale, limbOptions);
+            const armR = Bodies.rectangle(x + 25*scale, y - 10*scale, 10*scale, 40*scale, limbOptions);
+            const legL = Bodies.rectangle(x - 10*scale, y + 50*scale, 10*scale, 40*scale, limbOptions);
+            const legR = Bodies.rectangle(x + 10*scale, y + 50*scale, 10*scale, 40*scale, limbOptions);
+
+            const joints = [
+                Constraint.create({ bodyA: head, pointA: {x:0, y:15*scale}, bodyB: torso, pointB: {x:0, y:-25*scale}, stiffness: 0.8 }),
+                Constraint.create({ bodyA: torso, pointA: {x:-15*scale, y:-15*scale}, bodyB: armL, pointB: {x:0, y:-15*scale}, stiffness: 0.8 }),
+                Constraint.create({ bodyA: torso, pointA: {x:15*scale, y:-15*scale}, bodyB: armR, pointB: {x:0, y:-15*scale}, stiffness: 0.8 }),
+                Constraint.create({ bodyA: torso, pointA: {x:-10*scale, y:25*scale}, bodyB: legL, pointB: {x:0, y:-15*scale}, stiffness: 0.8 }),
+                Constraint.create({ bodyA: torso, pointA: {x:10*scale, y:25*scale}, bodyB: legR, pointB: {x:0, y:-15*scale}, stiffness: 0.8 })
+            ];
+
+            Composite.add(engine.world, [head, torso, armL, armR, legL, legR, ...joints]);
+        }
+
+        function generateCar(x, y) {
+            const group = Body.nextGroup(true);
+            const pal = Colors[State.theme];
+            const chassis = Bodies.rectangle(x, y - 30, 160, 30, { collisionFilter: { group: group }, density: 0.002, render: { type: 'rect', color: pal.poly, w: 160, h: 30 } });
+            const wheelA = Bodies.circle(x - 50, y, 20, { collisionFilter: { group: group }, friction: 0.8, render: { type: 'circle', color: pal.text, r: 20 } });
+            const wheelB = Bodies.circle(x + 50, y, 20, { collisionFilter: { group: group }, friction: 0.8, render: { type: 'circle', color: pal.text, r: 20 } });
+
+            const axelA = Constraint.create({ bodyA: chassis, pointA: { x: -50, y: 15 }, bodyB: wheelA, stiffness: 0.1, damping: 0.05 });
+            const axelB = Constraint.create({ bodyA: chassis, pointA: { x: 50, y: 15 }, bodyB: wheelB, stiffness: 0.1, damping: 0.05 });
+
+            Composite.add(engine.world, [chassis, wheelA, wheelB, axelA, axelB]);
+        }
+
+        function generateBridge() {
+            const group = Body.nextGroup(true);
+            const pal = Colors[State.theme];
+            const bridge = Matter.Composites.stack(width/2 - 300, height/2, 15, 1, 10, 10, function(x, y) {
+                return Bodies.rectangle(x, y, 40, 15, { collisionFilter: { group: group }, density: 0.005, render: { type: 'rect', color: pal.cloth, w: 40, h: 15 } });
+            });
+            Matter.Composites.chain(bridge, 0.45, 0, -0.45, 0, { stiffness: 0.99, length: 5 });
+            
+            const leftPillar = Bodies.rectangle(width/2 - 350, height/2 + 100, 40, 200, { isStatic: true, render: { type: 'rect', color: pal.rect, w: 40, h: 200 } });
+            const rightPillar = Bodies.rectangle(width/2 + 350, height/2 + 100, 40, 200, { isStatic: true, render: { type: 'rect', color: pal.rect, w: 40, h: 200 } });
+            
+            Constraint.create({ bodyA: bridge.bodies[0], pointB: { x: width/2 - 350, y: height/2 }, stiffness: 0.9, render: { visible: true } });
+            Constraint.create({ bodyA: bridge.bodies[bridge.bodies.length-1], pointB: { x: width/2 + 350, y: height/2 }, stiffness: 0.9, render: { visible: true } });
+            
+            Composite.add(engine.world, [bridge, leftPillar, rightPillar, 
+                Constraint.create({ bodyA: bridge.bodies[0], pointB: { x: leftPillar.position.x, y: leftPillar.position.y - 100 }, stiffness: 0.9 }),
+                Constraint.create({ bodyA: bridge.bodies[bridge.bodies.length-1], pointB: { x: rightPillar.position.x, y: rightPillar.position.y - 100 }, stiffness: 0.9 })
+            ]);
+        }
+
+        // --- EVENTS (SPARKS & COLLISION) ---
         Events.on(engine, 'collisionStart', (e) => {
+            if(!State.gfx.sparks) return;
             const pal = Colors[State.theme];
             e.pairs.forEach(p => {
-                if(p.bodyA.isStatic && p.bodyB.isStatic) return;
+                if (p.bodyA.isStatic && p.bodyB.isStatic) return;
                 const vDiff = Vector.magnitude(Vector.sub(p.bodyA.velocity, p.bodyB.velocity));
-                if(vDiff > 3 && p.activeContacts.length > 0) {
+                if (vDiff > 4 && p.activeContacts.length > 0) {
                     const pos = p.activeContacts[0].vertex;
-                    for(let i=0; i<Math.min(vDiff, 8); i++){
-                        sparks.push({ x: pos.x, y: pos.y, vx: (Math.random()-0.5)*vDiff, vy: (Math.random()-0.5)*vDiff, life: 1, c: pal.spark });
+                    const amount = Math.min(Math.floor(vDiff * 1.5), 15);
+                    for (let i = 0; i < amount; i++) {
+                        sparks.push({ 
+                            x: pos.x, y: pos.y, 
+                            vx: (Math.random() - 0.5) * vDiff * 1.2, 
+                            vy: (Math.random() - 0.5) * vDiff * 1.2, 
+                            life: 1.0, color: pal.spark 
+                        });
                     }
                 }
             });
         });
 
+        // --- CUSTOM RENDER LOOP ---
         function renderLoop() {
             if (State.isRunning) {
                 Engine.update(engine);
-                State.fps.frames++;
+                State.telemetry.frames++;
             }
 
-            ctx.clearRect(0, 0, width, height);
-            fluidCtx.clearRect(0, 0, width, height);
-            
-            fluidCtx.filter = 'blur(10px) contrast(20)';
+            // Clear Canvases
+            ctxPhys.clearRect(0, 0, width, height);
+            ctxFluid.clearRect(0, 0, width, height);
+            ctxRender.clearRect(0, 0, width, height);
 
             const bodies = Composite.allBodies(engine.world);
-            
-            // Trails
-            for(let i=objectTrails.length-1; i>=0; i--){
-                const t = objectTrails[i];
-                t.life -= 0.05;
-                if(t.life<=0){ objectTrails.splice(i,1); continue; }
-                ctx.fillStyle = t.color + Math.floor(t.life*255).toString(16).padStart(2,'0');
-                ctx.beginPath(); ctx.arc(t.x, t.y, t.r*t.life, 0, Math.PI*2); ctx.fill();
+            const constraints = Composite.allConstraints(engine.world);
+            const pal = Colors[State.theme];
+
+            // 1. Render Constraints (Layer 1)
+            ctxPhys.lineWidth = 2;
+            ctxPhys.strokeStyle = pal.constraint;
+            constraints.forEach(c => {
+                if (!c.render || c.render.visible === false) return;
+                const pA = c.bodyA ? Vector.add(c.bodyA.position, c.pointA) : c.pointA;
+                const pB = c.bodyB ? Vector.add(c.bodyB.position, c.pointB) : c.pointB;
+                if (!pA || !pB) return;
+                ctxPhys.beginPath();
+                ctxPhys.moveTo(pA.x, pA.y);
+                ctxPhys.lineTo(pB.x, pB.y);
+                ctxPhys.stroke();
+            });
+
+            // 2. Slicing Line
+            if (isSlicing && sliceStart) {
+                const mx = State.mousePos.x, my = State.mousePos.y;
+                ctxPhys.strokeStyle = '#ef4444';
+                ctxPhys.setLineDash([8, 8]);
+                ctxPhys.lineWidth = 3;
+                ctxPhys.beginPath(); ctxPhys.moveTo(sliceStart.x, sliceStart.y); ctxPhys.lineTo(mx, my); ctxPhys.stroke();
+                ctxPhys.setLineDash([]);
+
+                // Zerschneiden Logik berechnen (Raycast Schnittpunkte mit Constraints als Hack für Stoff/Seil Zerschneidung)
+                constraints.forEach(c => {
+                    if (!c.bodyA || !c.bodyB) return;
+                    const pA = Vector.add(c.bodyA.position, c.pointA);
+                    const pB = Vector.add(c.bodyB.position, c.pointB);
+                    // Intersection
+                    const det = (mx-sliceStart.x)*(pB.y-pA.y) - (my-sliceStart.y)*(pB.x-pA.x);
+                    if (det !== 0) {
+                        const l = ((pB.y-pA.y)*(pB.x-sliceStart.x) + (pA.x-pB.x)*(pB.y-sliceStart.y))/det;
+                        const g = ((sliceStart.y-my)*(pB.x-sliceStart.x) + (mx-sliceStart.x)*(pB.y-sliceStart.y))/det;
+                        if (0 < l && l < 1 && 0 < g && g < 1) {
+                            Composite.remove(engine.world, c);
+                        }
+                    }
+                });
             }
 
+            // 3. Render Bodies
+            if (State.gfx.fluidBlur) ctxFluid.filter = 'blur(12px) contrast(25)';
+            else ctxFluid.filter = 'none';
+
+            // Trails updaten und rendern
+            if (State.gfx.trails) {
+                for(let i = objectTrails.length - 1; i >= 0; i--){
+                    const t = objectTrails[i];
+                    t.life -= 0.04;
+                    if (t.life <= 0) { objectTrails.splice(i, 1); continue; }
+                    ctxRender.fillStyle = t.color;
+                    ctxRender.globalAlpha = t.life * 0.5;
+                    ctxRender.beginPath(); ctxRender.arc(t.x, t.y, t.r * (0.5 + t.life/2), 0, Math.PI*2); ctxRender.fill();
+                }
+                ctxRender.globalAlpha = 1.0;
+            } else { objectTrails = []; }
+
             bodies.forEach(b => {
-                if (b.label === 'wall') return;
-                const ren = b.render;
+                if (b.label === 'wall' && !State.gfx.wireframe) return;
                 
-                if(State.isRunning && b.speed > 4 && ren.type !== 'fluid'){
-                    objectTrails.push({ x: b.position.x, y: b.position.y, r: ren.r || ren.w/2 || 10, color: ren.color, life: 0.6 });
+                const ren = b.render;
+                if (!ren && !State.gfx.wireframe) return;
+
+                // Motion Trails Aufzeichnen
+                if (State.isRunning && State.gfx.trails && b.speed > 5 && ren && ren.type !== 'fluid' && !b.isStatic) {
+                    objectTrails.push({ x: b.position.x, y: b.position.y, r: ren.r || ren.w/2 || 10, color: ren.color, life: 1.0 });
                 }
 
-                if (ren.type === 'fluid') {
-                    fluidCtx.fillStyle = ren.color;
-                    fluidCtx.beginPath(); fluidCtx.arc(b.position.x, b.position.y, ren.r+4, 0, Math.PI*2); fluidCtx.fill();
+                if (ren && ren.type === 'fluid') {
+                    // Auf speziellem Canvas für Shader rendern
+                    ctxFluid.fillStyle = ren.color;
+                    ctxFluid.beginPath(); ctxFluid.arc(b.position.x, b.position.y, ren.r + 6, 0, Math.PI*2); ctxFluid.fill();
                 } else {
+                    // Normales Rendering auf Main Canvas
+                    const ctx = ctxRender;
                     ctx.save();
                     ctx.translate(b.position.x, b.position.y);
                     ctx.rotate(b.angle);
-                    ctx.fillStyle = ren.color;
-                    ctx.beginPath();
-                    if(ren.type === 'circle'){
-                        ctx.arc(0,0,ren.r,0,Math.PI*2); ctx.fill();
-                        ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=2; ctx.moveTo(0,0); ctx.lineTo(ren.r,0); ctx.stroke();
-                    } else if(ren.type === 'rect'){
-                        ctx.fillRect(-ren.w/2, -ren.h/2, ren.w, ren.h);
-                    } else if(ren.type === 'poly'){
-                        ctx.moveTo(ren.r*Math.cos(0), ren.r*Math.sin(0));
-                        for(let i=1; i<=ren.sides; i++) ctx.lineTo(ren.r*Math.cos(i*2*Math.PI/ren.sides), ren.r*Math.sin(i*2*Math.PI/ren.sides));
-                        ctx.fill();
+
+                    if (State.gfx.wireframe) {
+                        ctx.strokeStyle = ren ? ren.color : pal.text;
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(b.vertices[0].x - b.position.x, b.vertices[0].y - b.position.y);
+                        for(let j=1; j<b.vertices.length; j++) ctx.lineTo(b.vertices[j].x - b.position.x, b.vertices[j].y - b.position.y);
+                        ctx.closePath(); ctx.stroke();
+                    } else if (ren) {
+                        ctx.fillStyle = ren.color;
+                        ctx.shadowBlur = 10;
+                        ctx.shadowColor = ren.color;
+                        ctx.beginPath();
+                        
+                        if (ren.type === 'circle') {
+                            ctx.arc(0, 0, ren.r, 0, Math.PI*2); ctx.fill();
+                            // Direction Line
+                            ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 2; ctx.moveTo(0,0); ctx.lineTo(ren.r, 0); ctx.stroke();
+                        } else if (ren.type === 'rect') {
+                            if(ren.chamfer) {
+                                // Draw rounded rect manually or just regular
+                                ctx.roundRect(-ren.w/2, -ren.h/2, ren.w, ren.h, ren.chamfer); ctx.fill();
+                            } else {
+                                ctx.fillRect(-ren.w/2, -ren.h/2, ren.w, ren.h);
+                            }
+                        } else if (ren.type === 'poly' || ren.type === 'custom') {
+                            ctx.moveTo(b.vertices[0].x - b.position.x, b.vertices[0].y - b.position.y);
+                            for(let j=1; j<b.vertices.length; j++) ctx.lineTo(b.vertices[j].x - b.position.x, b.vertices[j].y - b.position.y);
+                            ctx.closePath(); ctx.fill();
+                        }
                     }
                     ctx.restore();
                 }
-            });
 
-            ctx.drawImage(fluidCanvas, 0, 0);
-
-            // Constraints zeichnen
-            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-            ctx.lineWidth = 1.5;
-            Composite.allConstraints(engine.world).forEach(c => {
-                if(!c.bodyA || !c.bodyB) return;
-                ctx.beginPath();
-                ctx.moveTo(c.bodyA.position.x+(c.pointA.x||0), c.bodyA.position.y+(c.pointA.y||0));
-                ctx.lineTo(c.bodyB.position.x+(c.pointB.x||0), c.bodyB.position.y+(c.pointB.y||0));
-                ctx.stroke();
-            });
-
-            // Sparks
-            for(let i=sparks.length-1; i>=0; i--){
-                const s = sparks[i];
-                s.x += s.vx; s.y += s.vy; s.vy += 0.1; s.life -= 0.03;
-                if(s.life<=0){ sparks.splice(i,1); continue; }
-                ctx.fillStyle = s.c; ctx.fillRect(s.x, s.y, 2, 2);
-            }
-
-            // Slicing Line
-            if(isSlicing && sliceStart){
-                const mx = mouseConstraint.mouse.position.x;
-                const my = mouseConstraint.mouse.position.y;
-                ctx.strokeStyle = '#ef4444'; ctx.setLineDash([5,5]); ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.moveTo(sliceStart.x, sliceStart.y); ctx.lineTo(mx, my); ctx.stroke(); ctx.setLineDash([]);
-                
-                Composite.allConstraints(engine.world).forEach(c => {
-                    if(!c.bodyA || !c.bodyB) return;
-                    const pA = Vector.add(c.bodyA.position, c.pointA);
-                    const pB = Vector.add(c.bodyB.position, c.pointB);
-                    // Intersection check math
-                    const det = (mx-sliceStart.x)*(pB.y-pA.y) - (my-sliceStart.y)*(pB.x-pA.x);
-                    if(det!==0){
-                        const l = ((pB.y-pA.y)*(pB.x-sliceStart.x) + (pA.x-pB.x)*(pB.y-sliceStart.y))/det;
-                        const g = ((sliceStart.y-my)*(pB.x-sliceStart.x) + (mx-sliceStart.x)*(pB.y-sliceStart.y))/det;
-                        if(0<l&&l<1 && 0<g&&g<1) Composite.remove(engine.world, c);
-                    }
-                });
-            }
-
-            document.getElementById('stat-bodiesCount').innerText = bodies.length - boundaries.length;
-            requestAnimationFrame(renderLoop);
-        }
-
-        function bindEvents() {
-            document.querySelectorAll('.btn-grid .action-button').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    document.querySelectorAll('.btn-grid .action-button').forEach(b => b.classList.remove('active'));
-                    this.classList.add('active');
-                    State.currentTool = this.dataset.tool;
-                });
-            });
-
-            document.getElementById('sld-gravityY').addEventListener('input', e => { engine.gravity.y = parseFloat(e.target.value); document.getElementById('lbl-gravityY').innerText = e.target.value+' G'; });
-            document.getElementById('sld-timeScale').addEventListener('input', e => { engine.timing.timeScale = parseFloat(e.target.value); document.getElementById('lbl-timeScale').innerText = e.target.value+'x'; });
-            document.getElementById('sld-restitution').addEventListener('input', e => { State.mat.restitution = parseFloat(e.target.value); document.getElementById('lbl-restitution').innerText = e.target.value; });
-            document.getElementById('sld-friction').addEventListener('input', e => { State.mat.friction = parseFloat(e.target.value); document.getElementById('lbl-friction').innerText = e.target.value; });
-            
-            document.getElementById('btn-playPause').addEventListener('click', () => {
-                State.isRunning = !State.isRunning;
-                document.getElementById('txt-playPause').innerText = State.isRunning ? 'Pause' : 'Start';
-                document.getElementById('icon-playPause').innerHTML = State.isRunning ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>' : '<polygon points="5,3 19,12 5,21"/>';
-            });
-
-            document.getElementById('btn-invertGravity').addEventListener('click', () => {
-                engine.gravity.y = -engine.gravity.y;
-                document.getElementById('sld-gravityY').value = engine.gravity.y;
-                document.getElementById('lbl-gravityY').innerText = engine.gravity.y.toFixed(1) + ' G';
-            });
-
-            document.getElementById('clearWorldBtn').addEventListener('click', () => {
-                Composite.allBodies(engine.world).forEach(b => { if(!b.isStatic) Composite.remove(engine.world, b); });
-                Composite.allConstraints(engine.world).forEach(c => Composite.remove(engine.world, c));
-                objectTrails = []; sparks = [];
-            });
-
-            document.getElementById('themeSelect').addEventListener('change', e => {
-                document.body.className = 'theme-' + e.target.value;
-                State.theme = e.target.value;
-            });
-
-            window.addEventListener('keydown', e => {
-                if(e.key==='Backspace' || e.key==='Delete') {
-                    if(mouseConstraint.body && !mouseConstraint.body.isStatic) {
-                        Composite.remove(engine.world, mouseConstraint.body);
-                        mouseConstraint.body = null;
-                    }
+                // Show IDs / Debug Text
+                if (State.gfx.showIds && b.label !== 'wall') {
+                    ctxRender.fillStyle = 'rgba(255,255,255,0.7)';
+                    ctxRender.font = '10px monospace';
+                    ctxRender.textAlign = 'center';
+                    ctxRender.fillText(`ID:${b.id}`, b.position.x, b.position.y - (ren ? (ren.r || ren.h/2) + 5 : 15));
                 }
             });
 
-            window.addEventListener('resize', () => {
-                width = canvas.width = fluidCanvas.width = window.innerWidth;
-                height = canvas.height = fluidCanvas.height = window.innerHeight;
+            // 4. Render Sparks
+            if (State.gfx.sparks) {
+                ctxRender.shadowBlur = 15;
+                for (let i = sparks.length - 1; i >= 0; i--) {
+                    const s = sparks[i];
+                    s.x += s.vx; s.y += s.vy; s.vy += 0.2; // Gravity for sparks
+                    s.life -= 0.02;
+                    if (s.life <= 0) { sparks.splice(i, 1); continue; }
+                    ctxRender.fillStyle = s.color;
+                    ctxRender.globalAlpha = s.life;
+                    ctxRender.shadowColor = s.color;
+                    ctxRender.beginPath(); ctxRender.arc(s.x, s.y, 2 * s.life, 0, Math.PI*2); ctxRender.fill();
+                }
+                ctxRender.globalAlpha = 1.0;
+                ctxRender.shadowBlur = 0;
+            }
+
+            requestAnimationFrame(renderLoop);
+        }
+
+        // --- TELEMETRY ---
+        setInterval(() => {
+            const now = performance.now();
+            State.telemetry.fps = (State.telemetry.frames * 1000) / (now - State.telemetry.lastTime);
+            State.telemetry.frames = 0;
+            State.telemetry.lastTime = now;
+
+            const bodies = Composite.allBodies(engine.world);
+            const constraints = Composite.allConstraints(engine.world);
+
+            document.getElementById('stat-fps').innerText = State.telemetry.fps.toFixed(1);
+            document.getElementById('stat-bodies').innerText = bodies.length - boundaries.length;
+            document.getElementById('stat-constraints').innerText = constraints.length - (mouseConstraint ? 1 : 0);
+
+            // Update Chart
+            State.telemetry.history.push(State.telemetry.fps);
+            State.telemetry.history.shift();
+
+            ctxFps.clearRect(0, 0, canvasFps.width, canvasFps.height);
+            ctxFps.strokeStyle = Colors[State.theme].circle;
+            ctxFps.lineWidth = 2;
+            ctxFps.beginPath();
+            for(let i=0; i<State.telemetry.history.length; i++) {
+                const x = (i / (State.telemetry.history.length-1)) * canvasFps.width;
+                const y = canvasFps.height - Math.min(State.telemetry.history[i] / 70, 1) * canvasFps.height;
+                if(i===0) ctxFps.moveTo(x,y); else ctxFps.lineTo(x,y);
+            }
+            ctxFps.stroke();
+            // Chart gradient fill
+            ctxFps.lineTo(canvasFps.width, canvasFps.height);
+            ctxFps.lineTo(0, canvasFps.height);
+            ctxFps.fillStyle = Colors[State.theme].circle + '33'; // 20% opacity
+            ctxFps.fill();
+
+        }, 1000);
+
+        // --- UI BINDINGS ---
+        function initUI() {
+            // Tools
+            document.querySelectorAll('[data-tool]').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('[data-tool]').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    State.tool = this.dataset.tool;
+                });
+            });
+
+            // Sliders Physics
+            const bindSlider = (id, labelId, suffix, callback) => {
+                document.getElementById(id).addEventListener('input', e => {
+                    const val = parseFloat(e.target.value);
+                    document.getElementById(labelId).innerText = val.toFixed(2) + suffix;
+                    callback(val);
+                });
+            };
+
+            bindSlider('sld-gravY', 'val-gravY', ' G', v => engine.gravity.y = v);
+            bindSlider('sld-gravX', 'val-gravX', ' G', v => engine.gravity.x = v);
+            bindSlider('sld-time', 'val-time', 'x', v => engine.timing.timeScale = v);
+            bindSlider('sld-restitution', 'val-restitution', '', v => State.mat.restitution = v);
+            bindSlider('sld-friction', 'val-friction', '', v => State.mat.friction = v);
+
+            // Playback
+            document.getElementById('btn-togglePlay').addEventListener('click', () => {
+                State.isRunning = !State.isRunning;
+                document.getElementById('text-playState').innerText = State.isRunning ? 'Pause' : 'Start';
+                const svg = State.isRunning 
+                    ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>' 
+                    : '<polygon points="5,3 19,12 5,21"/>';
+                document.getElementById('icon-playState').innerHTML = svg;
+            });
+
+            document.getElementById('btn-clearWorld').addEventListener('click', () => {
+                const bodies = Composite.allBodies(engine.world).filter(b => !b.isStatic || b.label !== 'wall');
+                Composite.remove(engine.world, bodies);
+                Composite.allConstraints(engine.world).forEach(c => {
+                    if (c !== mouseConstraint.constraint) Composite.remove(engine.world, c);
+                });
+                objectTrails = [];
+                sparks = [];
+            });
+
+            // Theme Switcher
+            document.getElementById('themeSelector').addEventListener('change', e => {
+                State.theme = e.target.value;
+                document.body.className = 'theme-' + State.theme;
+            });
+
+            // --- ADMIN PANEL LOGIC ---
+            const overlay = document.getElementById('adminPanelOverlay');
+            const adminTabs = document.querySelectorAll('.admin-tab');
+            const adminContents = document.querySelectorAll('.admin-content');
+
+            document.getElementById('btn-openAdmin').addEventListener('click', () => {
+                overlay.classList.add('active');
+                State.admin.isOpen = true;
+            });
+
+            document.getElementById('btn-closeAdmin').addEventListener('click', () => {
+                overlay.classList.remove('active');
+                State.admin.isOpen = false;
+            });
+
+            window.switchAdminTab = function(clickedTab) {
+                adminTabs.forEach(t => t.classList.remove('active'));
+                adminContents.forEach(c => c.classList.remove('active'));
+                clickedTab.classList.add('active');
+                document.getElementById(clickedTab.dataset.tab).classList.add('active');
+                // Update active Index für Keyboard Navigation
+                State.admin.activeTabIndex = Array.from(adminTabs).indexOf(clickedTab);
+            }
+
+            adminTabs.forEach(tab => {
+                tab.addEventListener('click', () => switchAdminTab(tab));
+            });
+
+            // Admin Actions
+            document.getElementById('btn-applyEngine').addEventListener('click', () => {
+                engine.positionIterations = parseInt(document.getElementById('adm-posIter').value);
+                engine.velocityIterations = parseInt(document.getElementById('adm-velIter').value);
+            });
+
+            document.getElementById('btn-toggleBounds').addEventListener('click', () => {
+                State.boundsEnabled = !State.boundsEnabled;
                 createBoundaries();
             });
+
+            document.getElementById('chk-wireframe').addEventListener('change', e => State.gfx.wireframe = e.target.checked);
+            document.getElementById('chk-showIds').addEventListener('change', e => State.gfx.showIds = e.target.checked);
+            document.getElementById('chk-fluidBlur').addEventListener('change', e => State.gfx.fluidBlur = e.target.checked);
+            document.getElementById('chk-trails').addEventListener('change', e => State.gfx.trails = e.target.checked);
+            document.getElementById('chk-sparks').addEventListener('change', e => State.gfx.sparks = e.target.checked);
+
+            // Stress Tests
+            document.getElementById('btn-stress100').addEventListener('click', () => { for(let i=0; i<100; i++) spawnTool(width/2 + (Math.random()*100-50), 100); });
+            document.getElementById('btn-stress500').addEventListener('click', () => { for(let i=0; i<500; i++) spawnTool(width/2 + (Math.random()*200-100), 50); });
+            document.getElementById('btn-stressFluid').addEventListener('click', () => {
+                for(let i=0; i<1000; i++) {
+                    const pal = Colors[State.theme];
+                    Composite.add(engine.world, Bodies.circle(width/2 + (Math.random()*300-150), 50 + Math.random()*200, 6, { restitution:0.1, friction:0, density:0.05, render:{type:'fluid', color:pal.fluid, r:6} }));
+                }
+            });
+
+            document.getElementById('btn-spawnCar').addEventListener('click', () => generateCar(width/2, height/2 - 200));
+            document.getElementById('btn-spawnBridge').addEventListener('click', () => generateBridge());
         }
 
-        function updateTelemetry() {
-            const now = performance.now();
-            State.fps.current = (State.fps.frames * 1000) / (now - State.fps.lastTime);
-            State.fps.frames = 0; State.fps.lastTime = now;
-            document.getElementById('stat-fps').innerText = (State.fps.current||60).toFixed(1);
-            
-            State.fps.history.push(State.fps.current); State.fps.history.shift();
-            telCtx.clearRect(0,0,telCanvas.width,telCanvas.height);
-            telCtx.strokeStyle = '#3b82f6'; telCtx.lineWidth = 2; telCtx.beginPath();
-            for(let i=0; i<State.fps.history.length; i++){
-                const x = (i/59)*telCanvas.width;
-                const y = telCanvas.height - (Math.min(State.fps.history[i]/65, 1)*telCanvas.height);
-                if(i===0) telCtx.moveTo(x,y); else telCtx.lineTo(x,y);
-            }
-            telCtx.stroke();
-        }
+        // --- INITIALIZE ---
+        resizeCanvases();
+        setupInteraction();
+        initUI();
+        requestAnimationFrame(renderLoop);
 
-        init();
     </script>
 </body>
 </html>
-
-```
